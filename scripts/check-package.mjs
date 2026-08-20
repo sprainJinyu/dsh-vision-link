@@ -21,6 +21,7 @@ const forbidden = [
   /(^|\/)(CONTEXT_MEMORY|GPT_ANALYSIS_AND_DEBUG_LOG|todo)\.md$/,
   /REPORT_\d{4}-\d{2}-\d{2}\.md$/,
   /^[^/]+\.png$/,
+  /^docs\/assets\//,
 ]
 const missing = required.filter((file) => !files.includes(file))
 const leaked = files.filter((file) => forbidden.some((pattern) => pattern.test(file)))

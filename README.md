@@ -5,28 +5,32 @@
 
 English | [简体中文](./README.zh-CN.md)
 
-Give text-only DeepSeek Harness (DSH) models image understanding without changing the text model or provider selected by the user.
+**Let a multimodal model see the image while the text model you selected stays in control of reasoning and the final answer.**
 
-## Highlights
+`dsh-vision-link` is a focused, lightweight vision router for DeepSeek Harness (DSH). It solves one problem: when a text-only model receives an image, a multimodal model already configured in DSH extracts the visual evidence and returns it to the original text model.
 
-- **Route-preserving**: the vision model extracts evidence; the original text model still produces the final answer.
-- **Reuses DSH models**: candidates come from models already configured in `settings.yaml` with image input support—no second API-key store.
-- **Paste and ask**: presets cover screenshots, UI errors, OCR, charts, code, and terminals.
-- **Same-provider first**: vision candidates in the current provider group are listed first.
-- **No DSH source patch**: a normal npm installation only needs a small `settings.yaml` mapping.
-- **Safe read-only UI**: the Web page can inspect mappings and generate YAML, while its loopback-only RPC never returns credentials.
+![The selected text model remains in control after an image is pasted](https://raw.githubusercontent.com/sprainJinyu/dsh-vision-link/main/docs/assets/route-preserving-chat.png)
 
-## Important: the page is read-only by default
+*The UI example uses generic model names and contains no real providers, models, or credentials.*
 
-For a normal installation, `Settings → Plugins → Vision Mapping` is a **read-only configuration assistant**, not a save form. **This is expected, not a plugin failure.** It keeps the plugin independent of DSH source code and respects DSH's Settings permission boundary.
+## Why this plugin
 
-Configuration takes three steps:
+- **The selected model stays selected**: no wrapper provider and no model-selector switch. The vision model supplies evidence; the original text model reasons and answers.
+- **Reuses DSH directly**: vision candidates come from existing Settings—no second API-key store, model catalog, or external proxy service.
+- **Lightweight by design**: a normal npm install patches no DSH source; the current package is about 24 KB with one runtime dependency, no separate process, and no extra temporary image files.
+- **Explicit, auditable routing**: each text model maps to one vision model, same-provider candidates come first, and the conversation names the model that read the image.
+- **Focused on paste-and-ask workflows**: UI errors, OCR, charts, code, and terminals—without trying to become a heavyweight vision toolbox.
 
-1. select the text model, vision model, and focus preset;
-2. click **Copy configuration YAML**;
-3. click **Open configuration file** in the upper-right corner and merge the snippet into `settings.yaml`.
+## How it works
 
-If `vision-link:` already exists, add only the new entry under its existing `mappings:` block. Do not create a second top-level `vision-link:` key. Changes normally apply live; restart DSH when they do not.
+```text
+image + user question
+  → mapped multimodal model extracts visual evidence
+  → image is replaced by structured [visual evidence] text
+  → original provider / text model produces the final answer
+```
+
+Native multimodal models pass through unchanged. Images go only to the vision model explicitly mapped by the user, never to a public shared vision service.
 
 ## Quick start
 
@@ -80,6 +84,18 @@ vision-link:
 
 The key is the exact text `provider/model`; the target uses real vision provider and model ids from DSH. See [`examples/settings.yaml`](./examples/settings.yaml) for a complete example.
 
+![Vision model mapping assistant](https://raw.githubusercontent.com/sprainJinyu/dsh-vision-link/main/docs/assets/vision-mapping.png)
+
+### Why is the configuration page read-only?
+
+With a normal npm installation, `Settings → Plugins → Vision Mapping` is a configuration assistant and does not write Settings directly. This avoids patching DSH source code or bypassing its permission boundary:
+
+1. choose the text model, vision model, and focus preset;
+2. click **Copy new mapping YAML**;
+3. click **Open configuration file** in the upper-right corner and merge it into `settings.yaml`.
+
+If `vision-link:` already exists, add the new entry under its existing `mappings:` block instead of creating another top-level key. Restart DSH if the saved change is not picked up automatically.
+
 ### 4. Use it
 
 Keep the original text model selected, paste an image into the composer, and ask your question. The page names the vision model used to read the image, but the model selector does not change.
@@ -92,17 +108,6 @@ Keep the original text model selected, paste an image into the composer, and ask
 - `chart`: tables, axes, legends, values, and trends;
 - `code`: code, terminals, filenames, line numbers, and stacks;
 - `custom`: use `customFocus` for a user-defined emphasis.
-
-## How it works
-
-```text
-image + user question
-  → mapped multimodal model extracts visual evidence
-  → image is replaced by structured [visual evidence] text
-  → original provider / text model produces the final answer
-```
-
-Native multimodal models pass through unchanged. The plugin registers no wrapper provider, never invokes model selection, and creates no extra temporary image file.
 
 ## Configuration precedence
 

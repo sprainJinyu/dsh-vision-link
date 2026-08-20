@@ -2,7 +2,7 @@
   "name": "dsh-vision-link",
   "version": "1.2.0",
   "type": "module",
-  "description": "Route-preserving multimodal sidecar for DeepSeek Harness (DSH), with managed text-to-vision model mappings.",
+  "description": "Lightweight, route-preserving vision link for DSH: a configured vision model sees while the selected text model stays in control.",
   "main": "index.mjs",
   "exports": {
     ".": "./index.mjs",
@@ -19,7 +19,7 @@
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
-    "docs",
+    "docs/*.md",
     "examples",
     "LICENSE"
   ],
