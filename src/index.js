@@ -164,11 +164,45 @@ function attachmentIdentity(block) {
     || JSON.stringify(block)
 }
 
+function cacheDebugEnabled() {
+  return process?.env?.DSH_VISION_LINK_DEBUG_CACHE === '1'
+}
+
+function cacheDebug(event, details) {
+  if (!cacheDebugEnabled()) return
+  const questionPreview = String(details.question || '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120)
+  console.log(`[vision-link][cache:${event}] attachment=${details.attachment} focus=${details.focus} question=${JSON.stringify(questionPreview)} key=${details.key}`)
+}
+
 function cacheSet(key, value) {
   if (evidenceCache.has(key)) evidenceCache.delete(key)
   evidenceCache.set(key, value)
   while (evidenceCache.size > MAX_CACHE_ENTRIES) {
     evidenceCache.delete(evidenceCache.keys().next().value)
+  }
+}
+
+function buildEvidenceCacheKey(imageBlock, target, userQuestion, defaultFocus = 'auto') {
+  const focus = normalizeFocus(target, defaultFocus)
+  const question = String(userQuestion || '').trim()
+  return [
+    target.provider,
+    target.model,
+    focus.preset,
+    focus.custom,
+    question,
+    attachmentIdentity(imageBlock),
+  ].join(':')
+}
+
+function describeCacheRequest(imageBlock, target, userQuestion, defaultFocus = 'auto') {
+  const focus = normalizeFocus(target, defaultFocus)
+  return {
+    attachment: attachmentIdentity(imageBlock),
+    focus: focus.preset === 'custom' ? `${focus.preset}:${focus.custom}` : focus.preset,
+    question: String(userQuestion || '').trim(),
   }
 }
 
@@ -180,23 +214,22 @@ async function readImageViaDsh(ctx, imageBlock, target, options = {}) {
     userQuestion,
     defaultFocus = 'auto',
   } = options
-  const focus = normalizeFocus(target, defaultFocus)
-  const cacheKey = [
-    target.provider,
-    target.model,
-    focus.preset,
-    focus.custom,
-    attachmentIdentity(imageBlock),
-  ].join(':')
+  const cacheKey = buildEvidenceCacheKey(imageBlock, target, userQuestion, defaultFocus)
+  const cacheInfo = describeCacheRequest(imageBlock, target, userQuestion, defaultFocus)
 
   const cached = evidenceCache.get(cacheKey)
   if (cached !== undefined) {
+    cacheDebug('hit', { ...cacheInfo, key: cacheKey })
     evidenceCache.delete(cacheKey)
     evidenceCache.set(cacheKey, cached)
     return cached
   }
   const pending = pendingReads.get(cacheKey)
-  if (pending !== undefined) return pending
+  if (pending !== undefined) {
+    cacheDebug('pending-hit', { ...cacheInfo, key: cacheKey })
+    return pending
+  }
+  cacheDebug('miss', { ...cacheInfo, key: cacheKey })
 
   const task = (async () => {
     const controller = new AbortController()

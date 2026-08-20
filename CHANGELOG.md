@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here. The project follows Semantic Versioning.
 
+## [1.2.1] - 2026-08-21
+
+### Added
+
+- Real-browser validation baseline and closeout summary documentation.
+- Regression checklist for writable settings, first-image mapping flow, native attachment replay, and route-preserving answer verification.
+
+### Changed
+
+- Evidence-cache identity now includes the effective user question context, preventing stale visual evidence reuse when the same image is asked about differently.
+- Client-side degradation now reports explicit configuration-assistant guidance when DSH Web integration hooks are unavailable instead of failing silently.
+- README and troubleshooting docs now reflect the current writable-host reality while still documenting fallback behavior for older or restricted deployments.
+
+### Testing
+
+- Added automated regression coverage for same-image same-question reuse and same-image different-question cache separation.
+- Verified the current local DSH host allows in-page `vision-link` settings writes and persists them into `settings.yaml`.
+- Verified real-browser first-image flow, native attachment replay, visible route preservation, and image-fact entry into the final answer path.
+- Attempted runtime cache hit/miss forensic logging; no live debug lines surfaced, so the remaining uncertainty is now tracked as a plugin-loading / runtime-path investigation rather than a blocker for this repair pass.
+
 ## [1.2.0] - 2026-08-20
 
 ### Added

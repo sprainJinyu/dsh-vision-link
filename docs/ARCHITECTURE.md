@@ -32,6 +32,7 @@ The second call is intentionally made through `ctx.llm.stream()` with the origin
 - Same-provider candidates sort first.
 - Normal installations render a read-only mapping view and YAML generator.
 - If a future/modified DSH Host explicitly exposes the `vision-link` Settings namespace, the existing managed editor can create, update, and remove mappings.
+- The paste/drop convenience path depends on current DSH Web client integration points; when those hooks are unavailable, the client degrades to explicit configuration guidance instead of silently switching models or mutating browser-local state.
 
 No mapping is stored in LocalStorage, so browser state cannot diverge from the server configuration.
 

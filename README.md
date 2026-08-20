@@ -84,8 +84,8 @@ Navigate to **`Settings → Plugins → Vision Mapping`** in DSH:
 </p>
 
 1. Select your **Text Model** (e.g. `DeepSeek-V4-Flash`), paired **Vision Model** (e.g. `Doubao / Qwen-Max`), and **Focus Preset**;
-2. Click **"Save Mapping"**, and changes take effect **immediately with zero restart!**
-3. *(Optional)* You can click **"Edit"** or **"Delete"** anytime, or configure directly in `settings.yaml` (in restricted environments, the panel automatically acts as a YAML generator):
+2. Click **"Save Mapping"**. Changes take effect immediately **only when the current DSH host exposes `vision-link` as a writable Settings namespace**;
+3. *(Optional)* You can click **"Edit"** or **"Delete"** anytime in writable hosts, or configure directly in `settings.yaml` (in normal npm-installed or restricted environments, the panel automatically acts as a YAML generator):
 
 ```yaml
 vision-link:
@@ -181,10 +181,49 @@ Tailored for real engineering workflows, `dsh-vision-link` provides 6 built-in e
 
 ---
 
+## 📌 Current validation status & next optimization directions
+
+### Current validation status
+
+After this repair pass and real-browser validation, `dsh-vision-link` has been confirmed to provide the following stable behavior:
+
+- ✅ The current DSH build / host now exposes writable in-page `vision-link` configuration, so mappings can be saved directly from the plugin page.
+- ✅ Saved mappings are actually written back into `D:\develop\dsh\settings.yaml`.
+- ✅ First-image paste triggers the vision-target selection dialog, and **Save & Attach** replays the image back into the composer as a native attachment.
+- ✅ The visible main model remains unchanged before and after send, so the route-preserving contract holds in real use.
+- ✅ A fresh-session live test proved that image-only facts enter the final answer path rather than remaining only at the attachment-display layer.
+- ✅ The same-image / different-question stale-cache issue is fixed in code and covered by the automated test suite, which now passes 11/11.
+
+### Next optimization directions
+
+The following are good candidates for later iterations, but they no longer block this repair-pass closeout:
+
+1. **Plugin loading-path forensics**
+   - Continue mapping the exact DSH runtime loading / build path used for `vision-link`.
+   - Resolve why temporary cache hit/miss debug logs did not surface directly from the live runtime.
+
+2. **Multi-image UX improvements**
+   - Multi-image handling is still effectively serial from a user-experience perspective.
+   - Later work can evaluate limited parallelism, progress feedback, and clearer timeout messaging.
+
+3. **Less fragile client integration**
+   - The convenience paste path still depends on current DSH Web Fiber / DOM integration points.
+   - A future pass can target a more formal client extension seam to reduce breakage from UI refactors.
+
+4. **Prompting & internationalization**
+   - The vision extraction prompts are still primarily Chinese.
+   - A future pass can adapt prompts by user language or model context for better English / mixed-language consistency.
+
+5. **Stronger live forensic baseline**
+   - When needed, add a dedicated minimal runtime-diagnostics path for cache behavior.
+   - That would make same-image same-question vs same-image different-question hit/miss behavior easier to re-prove in live environments.
+
+---
+
 ## 📖 Advanced & Developer Docs
 
 * 🏗️ **Architecture & Design Rationale**: [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
-* 🛠️ **Troubleshooting & FAQ**: [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md)
+* 🛠️ **Troubleshooting & regression baseline**: [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md)
 * 🤝 **Contributing Guide**: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 * 📜 **Changelog**: [`CHANGELOG.md`](./CHANGELOG.md)
 

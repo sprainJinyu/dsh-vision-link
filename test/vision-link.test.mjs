@@ -244,6 +244,67 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     assert.match(chunks.map((chunk) => chunk.text || '').join(''), /settings\.yaml.*vision-link\.mappings/)
   })
 
+  it('reuses evidence for the same image when the question is unchanged', async () => {
+    const bench = createHarness({
+      'provider-a/text-chat': {
+        provider: 'provider-a', model: 'vision-chat', displayName: 'Vision', focusPreset: 'auto',
+      },
+    })
+    apply(bench.ctx, {})
+
+    const request = {
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [userMessage('same-question', [
+        { type: 'text', text: '这个报错是什么意思？' },
+        { type: 'image', attachment: { attachmentId: 'img-cache-same' } },
+      ])],
+    }
+
+    await drain(bench.ctx.llm.stream(request))
+    await drain(bench.ctx.llm.stream(request))
+
+    assert.equal(bench.rawCalls.length, 3)
+    assert.deepEqual(
+      bench.rawCalls.map((call) => [call.provider, call.model]),
+      [['provider-a', 'vision-chat'], ['provider-a', 'text-chat'], ['provider-a', 'text-chat']],
+    )
+    bench.dispose()
+  })
+
+  it('does not reuse cached evidence when the same image is asked about differently', async () => {
+    const bench = createHarness({
+      'provider-a/text-chat': {
+        provider: 'provider-a', model: 'vision-chat', displayName: 'Vision', focusPreset: 'auto',
+      },
+    })
+    apply(bench.ctx, {})
+
+    await drain(bench.ctx.llm.stream({
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [userMessage('question-1', [
+        { type: 'text', text: '这个报错是什么？' },
+        { type: 'image', attachment: { attachmentId: 'img-cache-different' } },
+      ])],
+    }))
+    await drain(bench.ctx.llm.stream({
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [userMessage('question-2', [
+        { type: 'text', text: '这个报错怎么修？' },
+        { type: 'image', attachment: { attachmentId: 'img-cache-different' } },
+      ])],
+    }))
+
+    assert.equal(bench.rawCalls.length, 4)
+    assert.deepEqual(
+      bench.rawCalls.map((call) => [call.provider, call.model]),
+      [['provider-a', 'vision-chat'], ['provider-a', 'text-chat'], ['provider-a', 'vision-chat'], ['provider-a', 'text-chat']],
+    )
+    bench.dispose()
+  })
+
   it('browser bundle has mapping management and no model-selection mutation', () => {
     const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
     assert.match(source, /settings\.plugins\.tab/)
@@ -258,6 +319,8 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     assert.doesNotMatch(source, /setNotice\(success\)/)
     assert.match(source, /managementAvailable/)
     assert.match(source, /replayNativeIntake\(files\)/)
+    assert.match(source, /nativeIntakeSupport/)
+    assert.match(source, /配置助手模式/)
     assert.doesNotMatch(source, /\.select\s*\(/)
     assert.doesNotMatch(source, /selectModel/)
   })

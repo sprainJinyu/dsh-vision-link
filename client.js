@@ -90,6 +90,18 @@ window.__ModuleLoader__.load({
       return null
     }
 
+    function nativeIntakeSupport() {
+      const modelState = findModelContext()
+      const current = modelState?.current
+      const input = findInputBarContext()
+      return {
+        modelState,
+        current,
+        canInspectModel: Boolean(current),
+        canReplayImages: typeof input?.addImages === 'function' || Boolean(document.querySelector('textarea')),
+      }
+    }
+
     function showBanner(message, isError = false, action) {
       document.getElementById(TOAST_ID)?.remove()
       const toast = document.createElement('div')
@@ -351,12 +363,19 @@ window.__ModuleLoader__.load({
 
     async function handleImageFiles(files, event) {
       if (replayingNativeImageIntake || intakeBusy || files.length === 0) return
-      const modelState = findModelContext()
-      const current = modelState?.current
-      if (!current || isWrapperProvider(current.provider)) return
-      const group = modelState.groups?.find((entry) => entry.id === current.provider)
+      const support = nativeIntakeSupport()
+      const current = support.current
+      if (!current || isWrapperProvider(current.provider)) {
+        showBanner('当前页面无法确认所选文本模型，vision-link 已降级为配置助手。请先确认 settings.yaml 映射，或刷新/重启 DSH 后重试。', true)
+        return
+      }
+      const group = support.modelState.groups?.find((entry) => entry.id === current.provider)
       const currentInfo = group?.models?.find((entry) => entry.id === current.model)
       if (currentInfo?.inputModalities?.includes('image')) return
+      if (!support.canReplayImages) {
+        showBanner(`当前 DSH 页面未暴露图片回放接口；vision-link 只能保留配置助手模式。请在 settings.yaml 配置映射后手动发送，当前模型保持为 ${current.model}。`, true)
+        return
+      }
 
       event?.preventDefault()
       event?.stopImmediatePropagation()
@@ -371,7 +390,7 @@ window.__ModuleLoader__.load({
           } else if (state.readOnlyAvailable) {
             showBanner(`当前模型没有配置图片映射；图片可以加入，但发送时 DSH 会友好拒绝。请在 settings.yaml 中添加映射。当前模型保持为 ${current.model}`, true)
           } else {
-            showBanner(`页面管理未开放；图片将按 settings.yaml 的服务端映射处理。当前 DSH 不支持读取映射快照，若尚未配置，发送时会拒绝。当前模型保持为 ${current.model}`)
+            showBanner(`页面管理未开放，且当前页面无法读取服务端映射快照。请优先在 settings.yaml 中配置 vision-link.mappings；如配置后仍未生效，请重启 DSH。当前模型保持为 ${current.model}`, true)
           }
           await replayNativeIntake(files)
           return
