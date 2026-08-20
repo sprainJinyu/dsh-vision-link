@@ -160,9 +160,13 @@ vision-link:
 
 Keep your preferred text model (e.g. `DeepSeek-V4-Flash`) selected, and **paste (Ctrl+V) or drop an image directly into the composer**:
 
-* 🖼️ Image thumbnail is preserved in the composer;
-* 💬 Notification indicates `Read by 火山code plan · doubao-seed-2.1-turbo; current model remains deepseek-v4-flash`;
-* 🎯 Submit your prompt, and the original DeepSeek model provides deep, evidence-grounded answers!
+<p align="center">
+  <img src="https://raw.githubusercontent.com/sprainJinyu/dsh-vision-link/main/docs/assets/input-prompt-toast.png" alt="Input composer toast notification" width="88%" style="border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.25);" />
+</p>
+
+* 🖼️ **Preserved Thumbnail**: Image thumbnail is seamlessly retained in the composer;
+* 💬 **Transparent Feedback**: A subtle toast indicates `Read by 火山code plan · doubao-seed-2.1-turbo; current model remains deepseek-v4-flash`;
+* 🎯 **Deep Answers**: Submit your prompt, and the original DeepSeek model provides deep, evidence-grounded answers!
 
 ---
 

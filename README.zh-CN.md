@@ -161,9 +161,13 @@ vision-link:
 
 在聊天界面中选中纯文本模型（如 `DeepSeek-V4-Flash`），**直接向对话框粘贴 (Ctrl+V) 或拖入图片**：
 
-* 🖼️ 图片缩略图完整保留在输入框中；
-* 💬 页面提示 `由 火山code plan · doubao-seed-2.1-turbo 读取图片；当前模型保持为 deepseek-v4-flash`；
-* 🎯 提问发送后，原 DeepSeek 模型基于结构化视觉证据完成深度推理与解答！
+<p align="center">
+  <img src="https://raw.githubusercontent.com/sprainJinyu/dsh-vision-link/main/docs/assets/input-prompt-toast.png" alt="输入框贴图浮动提示气泡" width="88%" style="border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.25);" />
+</p>
+
+* 🖼️ **缩略图保留**：图片缩略图完美保留在输入框中；
+* 💬 **透明提示**：浮动气泡清晰提示 `由 火山code plan · doubao-seed-2.1-turbo 读取图片；当前模型保持为 deepseek-v4-flash`；
+* 🎯 **深度解答**：提问发送后，原 DeepSeek 模型基于结构化视觉证据完成高水平深度推理与解答！
 
 ---
 
