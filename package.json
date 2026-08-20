@@ -1,0 +1,78 @@
+{
+  "name": "dsh-vision-link",
+  "version": "1.2.0",
+  "type": "module",
+  "description": "Route-preserving multimodal sidecar for DeepSeek Harness (DSH), with managed text-to-vision model mappings.",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "client.js",
+    "src/index.js",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "docs",
+    "examples",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/vision-link.test.mjs",
+    "check:syntax": "node --check index.mjs && node --check src/index.js && node --check client.js",
+    "check:text": "node scripts/check-text.mjs",
+    "check:package": "node scripts/check-package.mjs",
+    "check": "npm run check:syntax && npm run check:text",
+    "validate": "npm run check && npm test && npm run check:package"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
+      ],
+      "platform": "web"
+    }
+  },
+  "dependencies": {
+    "schemastery": "^3.18.0"
+  },
+  "keywords": [
+    "deepseek",
+    "deepseek-harness",
+    "dsh-plugin",
+    "vision",
+    "multimodal",
+    "ocr",
+    "image-understanding",
+    "route-preserving",
+    "sidecar"
+  ],
+  "author": "sprainJinyu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sprainJinyu/dsh-vision-link.git"
+  },
+  "homepage": "https://github.com/sprainJinyu/dsh-vision-link#readme",
+  "bugs": {
+    "url": "https://github.com/sprainJinyu/dsh-vision-link/issues"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

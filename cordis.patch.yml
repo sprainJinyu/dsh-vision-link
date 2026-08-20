@@ -1,0 +1,9 @@
+# dsh-vision-link bundle patch
+- insert:
+    - id: vision-link
+      name: dsh-vision-link
+      config:
+        visionTimeoutMs: 60000
+        # No provider-specific mapping is bundled. Users configure exact
+        # mappings in settings.yaml; optional route fallbacks may be supplied
+        # in a profile overlay.

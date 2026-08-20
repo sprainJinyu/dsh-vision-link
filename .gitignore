@@ -1,0 +1,33 @@
+# Private development, context memory & risk logs (Do NOT publish)
+todo.md
+*.local.md
+CONTEXT_MEMORY.md
+DEV_MEMORY.md
+*.memory.md
+GPT_ANALYSIS_AND_DEBUG_LOG.md
+*ANALYSIS*.md
+/INDEPENDENT_FIX_REPORT_*.md
+/READ_ONLY_MAPPING_REPORT_*.md
+/ROUTE_PRESERVING_VISION_REPORT_*.md
+/artifacts/
+/*.png
+
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+
+# Runtime backups & logs
+backup/
+*.log
+.system_generated/
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Test and release output
+coverage/
+.nyc_output/
+*.tgz

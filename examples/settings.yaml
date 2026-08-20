@@ -1,0 +1,21 @@
+# Merge this example into your existing DSH settings.yaml.
+# Do not duplicate a top-level key that already exists; merge its children.
+
+llm-pi-ai:
+  providers:
+    example-provider:
+      # Keep your existing API/baseURL/credential fields here.
+      models:
+        - id: text-chat
+          name: Text Chat
+        - id: vision-chat
+          name: Vision Chat
+          input: [text, image]
+
+vision-link:
+  mappings:
+    example-provider/text-chat:
+      provider: example-provider
+      model: vision-chat
+      displayName: Example Provider · Vision Chat
+      focusPreset: auto
