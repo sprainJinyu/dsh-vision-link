@@ -202,7 +202,8 @@ sequenceDiagram
 
 1. **插件加载链路取证**
    - 继续摸清 DSH 运行时对 `vision-link` 的真实加载 / 构建产物路径；
-   - 解决为何调试版 cache hit/miss 日志未在运行时直接冒出的问题。
+   - 解决为何调试版 cache hit/miss 日志未在运行时直接冒出的问题；
+   - 当前已确认：profile 侧安装的是本地 link 包，client 侧通过 `./client -> client.js` export 和 `/plugins/<id>/client.js` 提供 bundle，因此该未闭环问题更像是 Host / Client 加载面差异，而不是本轮修复失败。
 
 2. **多图体验优化**
    - 当前多图读取仍偏串行；

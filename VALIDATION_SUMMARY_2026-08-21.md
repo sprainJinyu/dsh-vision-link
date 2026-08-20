@@ -250,3 +250,61 @@ node --test test/vision-link.test.mjs
 - 图像事实进入回答。
 
 如果以上两层都通过，则未来改动即使较大，也有相当稳的基准线可依赖。
+
+---
+
+## 9. 运行时加载链路调查结果（追加收口）
+
+本轮在收口后继续单独调查了：
+> 为什么给 `src/index.js` 增加的临时 cache forensic debug 日志，在重启 DSH 后仍没有出现在 live runtime / session log 中？
+
+### 已确认事实
+
+1. **Profile 确实安装的是本地 link 包**
+   - `D:\develop\dsh\profiles\web\package.json` 中，`dsh-vision-link` 依赖为：
+     - `link:D:/develop/dsh/my-create-plugins/dsh-vision-link`
+   - `pnpm-lock.yaml` 中也解析为：
+     - `version: link:../../my-create-plugins/dsh-vision-link`
+   - `profiles/web/node_modules/dsh-vision-link/*` 与 `my-create-plugins/dsh-vision-link/*` 通过 `samefile()` 验证为同一物理文件。
+
+2. **Bundle patch 解析链本身没有问题**
+   - `dsh plugin --profile web` 的 profile 机制会读取 bundle 的 `dsh.bundle.patch`，将其 patch 层加入启动时的配置树；
+   - `dsh-vision-link/package.json` 明确声明了：
+     - `dsh.bundle.patch: ./cordis.patch.yml`
+   - 该 patch 会插入 host 侧的：
+     - `id: vision-link`
+     - `name: dsh-vision-link`
+
+3. **Client 侧不是直接读 `src/`，而是通过 `./client` export 提供 bundle**
+   - DSH 的 client module 机制会扫描带 `dsh.client` 声明的包；
+   - 浏览器启动图 `window.__DSH_BOOT__` 里的条目，最终走的是：
+     - `/plugins/<id>/client.js?rev=<rev>`
+   - `./client` export 目标是：
+     - `./client.js`
+   - 也就是说，浏览器半读取的是包根 `client.js`，不是 `src/index.js`。
+
+4. **Host / Client 的构建与加载面是分开的**
+   - DSH 文档明确说明：普通 Client 插件在 Client 阶段会生成 browser bundle；
+   - `ctx.clientModules` 服务提供 `/plugins/<id>/client.js`；
+   - `dev:web` 只监视带 `dsh.client` 声明的 Client 插件并重写其 `lib/client.js`；
+   - Host 源码与 Client bundle 并不是同一个加载面。
+
+### 当前最合理解释
+
+本次没有拿到 live cache debug 行，更可能不是 `vision-link` 逻辑没生效，而是：
+
+- **我们改动的 `src/index.js` 并不是当前 live runtime 中那条最容易直接冒日志的执行面；**
+- 或者当前 DSH 在源码运行模式下，host/plugin 装配仍受某个已构建产物 / bundle / HMR 图影响；
+- `client.js` 与 `src/index.js` 所处的加载面不同，前者经 `/plugins/<id>/client.js` 服务给浏览器，后者则属于 host 侧 bundle 行为的一部分。
+
+### 结论
+
+这一点已经足以把 A3 的未闭环问题定性为：
+
+> **DSH 插件运行时加载链路 / 构建产物路径取证问题**
+
+而不是：
+
+> `dsh-vision-link` 本轮缓存修复失败。
+
+因此，本轮可以正式收口；若未来还要深挖，应作为独立的平台装配调查任务继续推进，而不应阻塞 `vision-link` 当前版本的修复验收。

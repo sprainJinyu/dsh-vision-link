@@ -20,7 +20,7 @@ All notable changes to this project are documented here. The project follows Sem
 - Added automated regression coverage for same-image same-question reuse and same-image different-question cache separation.
 - Verified the current local DSH host allows in-page `vision-link` settings writes and persists them into `settings.yaml`.
 - Verified real-browser first-image flow, native attachment replay, visible route preservation, and image-fact entry into the final answer path.
-- Attempted runtime cache hit/miss forensic logging; no live debug lines surfaced, so the remaining uncertainty is now tracked as a plugin-loading / runtime-path investigation rather than a blocker for this repair pass.
+- Attempted runtime cache hit/miss forensic logging; the added investigation now confirms that the profile installs a local link package and the browser half is served through the `./client -> client.js` export, so the remaining uncertainty is tracked as a Host / Client loading-surface investigation rather than a blocker for this repair pass.
 
 ## [1.2.0] - 2026-08-20
 

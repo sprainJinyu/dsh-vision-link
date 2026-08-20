@@ -201,6 +201,7 @@ The following are good candidates for later iterations, but they no longer block
 1. **Plugin loading-path forensics**
    - Continue mapping the exact DSH runtime loading / build path used for `vision-link`.
    - Resolve why temporary cache hit/miss debug logs did not surface directly from the live runtime.
+   - The current investigation already confirms that the profile installs a local link package, while the browser side serves `./client -> client.js` through `/plugins/<id>/client.js`, so the remaining uncertainty now looks like a Host / Client loading-surface difference rather than a failure of this repair pass.
 
 2. **Multi-image UX improvements**
    - Multi-image handling is still effectively serial from a user-experience perspective.
