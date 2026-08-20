@@ -49,11 +49,10 @@ sequenceDiagram
     participant TextLLM as 🧠 Text Model (DeepSeek-V4-Flash)
 
     User->>Client: Paste Screenshot (Ctrl+V) + Enter Question
-    Note over Client: Model selection stays unchanged; thumbnail preserved
     Client->>Plugin: Request initiated (Original route preserved)
     Plugin->>VisionLLM: Stream extraction of structured visual facts & OCR
     VisionLLM-->>Plugin: Returns clean, compact Markdown evidence
-    Plugin->>Plugin: In-memory swap: [ImageBlock] ➔ [Visual Evidence]
+    Plugin->>Plugin: In-memory swap: [ImageBlock] to [Visual Evidence]
     Plugin->>TextLLM: Forward text prompt (including visual evidence)
     TextLLM-->>User: Delivers deep code reasoning and actionable fixes
 ```

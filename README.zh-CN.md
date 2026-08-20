@@ -53,7 +53,7 @@ sequenceDiagram
     Client->>Plugin: 发起会话请求 (原路由不变)
     Plugin->>VisionLLM: 后台流式提取结构化视觉事实与 OCR
     VisionLLM-->>Plugin: 输出紧凑 Markdown 证据
-    Plugin->>Plugin: 内存替换: [ImageBlock] ➔ [视觉证据]
+    Plugin->>Plugin: 内存替换: [ImageBlock] 到 [视觉证据]
     Plugin->>TextLLM: 投递纯文本请求 (含结构化视觉证据)
     TextLLM-->>User: 输出顶级代码推理与精准修复方案
 ```
