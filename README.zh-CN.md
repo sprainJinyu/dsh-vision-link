@@ -130,26 +130,26 @@ llm-pi-ai:
 
 ---
 
-### 步骤 3：配置视觉映射（开箱即用可视化助手）
+### 步骤 3：配置视觉映射（开箱即用可视化管理）
 
 打开 DSH 界面中的 **`设置 → 插件 → 视觉映射`**：
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/sprainJinyu/dsh-vision-link/main/docs/assets/vision-mapping.png" alt="视觉模型映射配置助手" width="88%" style="border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.25);" />
+  <img src="https://raw.githubusercontent.com/sprainJinyu/dsh-vision-link/main/docs/assets/vision-mapping.png" alt="视觉模型映射可视化设置面板" width="88%" style="border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.25);" />
 </p>
 
-1. 在下拉框中选择你的**纯文本模型**（如 `DeepSeek-V4-Flash`）、配对的**多模态模型**（如 `Qwen-Max`）以及**解读重点**；
-2. 点击 **「复制新映射 YAML」**；
-3. 点击右上角 **「打开配置文件」**，将内容合并到你的 `settings.yaml` 中：
+1. 在下拉框中选择你的**纯文本模型**（如 `DeepSeek-V4-Flash`）、配对的**多模态模型**（如 `火山豆包 / Qwen-Max`）以及**解读重点**；
+2. 点击 **「保存映射」**，配置直接保存并**立即生效，零重启！**
+3. （可选）你也可以随时点击卡片右侧的 **「编辑」** 或 **「删除」** 进行调整；或直接在 `settings.yaml` 中配置：
 
 ```yaml
 vision-link:
   mappings:
-    my-provider/deepseek-v4-flash:
-      provider: my-provider
-      model: qwen3.8-max
-      displayName: My Provider · Qwen 3.8 Max
-      focusPreset: ui    # 👈 选填：ui/ocr/code/chart/auto
+    ark-code-plan/deepseek-v4-flash:
+      provider: ark-code-plan
+      model: doubao-seed-2.1-turbo
+      displayName: 火山code plan · doubao-seed-2.1-turbo
+      focusPreset: auto    # 👈 选填：auto/ui/ocr/code/chart/custom
 ```
 
 > [!TIP]
@@ -162,7 +162,7 @@ vision-link:
 在聊天界面中选中纯文本模型（如 `DeepSeek-V4-Flash`），**直接向对话框粘贴 (Ctrl+V) 或拖入图片**：
 
 * 🖼️ 图片缩略图完整保留在输入框中；
-* 💬 页面提示 `由 Qwen 3.8 Max 读取图片；当前模型保持为 DeepSeek-V4-Flash`；
+* 💬 页面提示 `由 火山code plan · doubao-seed-2.1-turbo 读取图片；当前模型保持为 deepseek-v4-flash`；
 * 🎯 提问发送后，原 DeepSeek 模型基于结构化视觉证据完成深度推理与解答！
 
 ---

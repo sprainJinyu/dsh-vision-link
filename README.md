@@ -129,26 +129,26 @@ llm-pi-ai:
 
 ---
 
-### Step 3: Configure Vision Mapping (Built-in Visual Assistant)
+### Step 3: Configure Vision Mapping (Built-in Visual Management)
 
 Navigate to **`Settings → Plugins → Vision Mapping`** in DSH:
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/sprainJinyu/dsh-vision-link/main/docs/assets/vision-mapping.png" alt="Vision model mapping assistant" width="88%" style="border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.25);" />
+  <img src="https://raw.githubusercontent.com/sprainJinyu/dsh-vision-link/main/docs/assets/vision-mapping.png" alt="Vision model mapping visual settings panel" width="88%" style="border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.25);" />
 </p>
 
-1. Select your **Text Model** (e.g. `DeepSeek-V4-Flash`), paired **Vision Model** (e.g. `Qwen-Max`), and **Focus Preset**;
-2. Click **"Copy new mapping YAML"**;
-3. Click **"Open configuration file"** in the top-right corner and merge the snippet into `settings.yaml`:
+1. Select your **Text Model** (e.g. `DeepSeek-V4-Flash`), paired **Vision Model** (e.g. `Doubao / Qwen-Max`), and **Focus Preset**;
+2. Click **"Save Mapping"**, and changes take effect **immediately with zero restart!**
+3. *(Optional)* You can click **"Edit"** or **"Delete"** anytime, or configure directly in `settings.yaml`:
 
 ```yaml
 vision-link:
   mappings:
-    my-provider/deepseek-v4-flash:
-      provider: my-provider
-      model: qwen3.8-max
-      displayName: My Provider · Qwen 3.8 Max
-      focusPreset: ui    # 👈 Optional: ui/ocr/code/chart/auto
+    ark-code-plan/deepseek-v4-flash:
+      provider: ark-code-plan
+      model: doubao-seed-2.1-turbo
+      displayName: 火山code plan · doubao-seed-2.1-turbo
+      focusPreset: auto    # 👈 Optional: auto/ui/ocr/code/chart/custom
 ```
 
 > [!TIP]
@@ -161,7 +161,7 @@ vision-link:
 Keep your preferred text model (e.g. `DeepSeek-V4-Flash`) selected, and **paste (Ctrl+V) or drop an image directly into the composer**:
 
 * 🖼️ Image thumbnail is preserved in the composer;
-* 💬 Notification indicates `Read by Qwen 3.8 Max; current model remains DeepSeek-V4-Flash`;
+* 💬 Notification indicates `Read by 火山code plan · doubao-seed-2.1-turbo; current model remains deepseek-v4-flash`;
 * 🎯 Submit your prompt, and the original DeepSeek model provides deep, evidence-grounded answers!
 
 ---
