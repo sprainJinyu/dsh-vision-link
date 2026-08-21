@@ -48,8 +48,6 @@ npx -y @deepseek-ai/dsh plugin --profile web add dsh-vision-link
 ```
 
 > [!IMPORTANT]
-> If the npm tag still shows `1.2.0`, install from the git repo or a local path instead of trusting the changelog alone. Remove this note after npm actually publishes `1.2.1`.
->
 > Do not stack `dsh-vision-link` with other paste-intercept plugins such as `modlens`, `image-bridge`, or `vision-toolkit` on the same DSH Web page. They may compete for the same paste/drop hook and make image intake behavior ambiguous.
 
 Start or restart DSH Web:

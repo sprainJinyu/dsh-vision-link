@@ -48,8 +48,6 @@ npx -y @deepseek-ai/dsh plugin --profile web add dsh-vision-link
 ```
 
 > [!IMPORTANT]
-> 如果 npm 标签暂时仍显示 `1.2.0`，请优先通过 git 仓库或本地 path 安装，不要只信 changelog。等 npm 真正发布 `1.2.1` 后再删除这条提示。
->
 > 不要在同一个 DSH Web 页面里把 `dsh-vision-link` 和 `modlens`、`image-bridge`、`vision-toolkit` 这类会拦截粘贴/拖放的插件叠加使用。它们可能争抢同一条 paste/drop 挂钩，导致图片接入行为变得不明确。
 
 启动或重启 DSH Web 服务：
