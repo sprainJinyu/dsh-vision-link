@@ -1,6 +1,7 @@
 // DeepSeek Harness (DSH) plugin: Vision Link
 // Adds image understanding to text-only models without changing the selected route.
 
+import { createHash } from 'node:crypto'
 import z from 'schemastery'
 
 export const name = 'dsh-vision-link'
@@ -156,12 +157,24 @@ export async function resolveVisionTarget(nativeResolve, config, settings, provi
   return validateVisionTarget(nativeResolve, configuredTarget(config, settings, provider, model), signal)
 }
 
-function attachmentIdentity(block) {
+/** Deterministic JSON regardless of property order. */
+function stableStringify(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  const keys = Object.keys(value).sort()
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`
+}
+
+function shortHash(text) {
+  return createHash('sha256').update(text).digest('hex').slice(0, 16)
+}
+
+export function attachmentIdentity(block) {
   return block?.attachment?.attachmentId
     || block?.attachment?.id
     || block?.attachment?.ref
     || block?.url
-    || JSON.stringify(block)
+    || `sha:${shortHash(stableStringify(block ?? null))}`
 }
 
 function cacheDebugEnabled() {
@@ -184,17 +197,19 @@ function cacheSet(key, value) {
   }
 }
 
-function buildEvidenceCacheKey(imageBlock, target, userQuestion, defaultFocus = 'auto') {
+export function buildEvidenceCacheKey(imageBlock, target, userQuestion, defaultFocus = 'auto') {
   const focus = normalizeFocus(target, defaultFocus)
   const question = String(userQuestion || '').trim()
-  return [
+  // NUL-join then hash so the log key stays short and field boundaries cannot shift.
+  const components = [
     target.provider,
     target.model,
     focus.preset,
     focus.custom,
     question,
     attachmentIdentity(imageBlock),
-  ].join(':')
+  ]
+  return `vl1:${shortHash(components.join('\0'))}`
 }
 
 function describeCacheRequest(imageBlock, target, userQuestion, defaultFocus = 'auto') {

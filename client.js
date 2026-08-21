@@ -9,6 +9,13 @@ window.__ModuleLoader__.load({
     const module = { exports: {} }
     const exports = module.exports
 
+    function intakeReplayMode({ canInspectModel, hasAddImages, hasTextarea }) {
+      if (!canInspectModel) return 'config-assistant'
+      if (hasAddImages) return 'native-add-images'
+      if (hasTextarea) return 'paste-fallback'
+      return 'config-assistant'
+    }
+
     const SETTINGS_NS = 'vision-link'
     const READ_ONLY_RPC_CHANNEL = '/vision-link-rpc'
     const READ_ONLY_RPC_ENDPOINT = 'mappings.describe'
@@ -94,11 +101,18 @@ window.__ModuleLoader__.load({
       const modelState = findModelContext()
       const current = modelState?.current
       const input = findInputBarContext()
+      const textarea = document.querySelector('textarea')
+      const replayMode = intakeReplayMode({
+        canInspectModel: Boolean(current),
+        hasAddImages: typeof input?.addImages === 'function',
+        hasTextarea: Boolean(textarea),
+      })
       return {
         modelState,
         current,
+        replayMode,
         canInspectModel: Boolean(current),
-        canReplayImages: typeof input?.addImages === 'function' || Boolean(document.querySelector('textarea')),
+        canReplayImages: replayMode === 'native-add-images' || replayMode === 'paste-fallback',
       }
     }
 
@@ -381,16 +395,19 @@ window.__ModuleLoader__.load({
       event?.stopImmediatePropagation()
       intakeBusy = true
       const textModel = { provider: current.provider, model: current.model }
+      const replayModeNote = support.replayMode === 'paste-fallback'
+        ? ' 当前 DSH 页面未暴露原生 addImages 接口，已降级为粘贴回放模式。'
+        : ''
       try {
         const state = await loadState(current.provider)
         if (!state.managementAvailable) {
           const mapping = state.mappings[modelKey(current.provider, current.model)]
           if (state.readOnlyAvailable && mapping) {
-            showBanner(`由 ${mapping.displayName || `${mapping.provider}/${mapping.model}`} 读取图片（settings.yaml 只读映射）；当前模型保持为 ${current.model}`)
+            showBanner(`由 ${mapping.displayName || `${mapping.provider}/${mapping.model}`} 读取图片（settings.yaml 只读映射）；当前模型保持为 ${current.model}。${replayModeNote}`)
           } else if (state.readOnlyAvailable) {
-            showBanner(`当前模型没有配置图片映射；图片可以加入，但发送时 DSH 会友好拒绝。请在 settings.yaml 中添加映射。当前模型保持为 ${current.model}`, true)
+            showBanner(`当前模型没有配置图片映射；图片可以加入，但发送时 DSH 会友好拒绝。请在 settings.yaml 中添加映射。当前模型保持为 ${current.model}。${replayModeNote}`, true)
           } else {
-            showBanner(`页面管理未开放，且当前页面无法读取服务端映射快照。请优先在 settings.yaml 中配置 vision-link.mappings；如配置后仍未生效，请重启 DSH。当前模型保持为 ${current.model}`, true)
+            showBanner(`页面管理未开放，且当前页面无法读取服务端映射快照。请优先在 settings.yaml 中配置 vision-link.mappings；如配置后仍未生效，请重启 DSH。当前模型保持为 ${current.model}。${replayModeNote}`, true)
           }
           await replayNativeIntake(files)
           return
@@ -416,7 +433,7 @@ window.__ModuleLoader__.load({
           )
           candidate = choice.target
         }
-        showBanner(`由 ${mapping.displayName || `${candidate.provider}/${candidate.model}`} 读取图片；当前模型保持为 ${current.model}`)
+        showBanner(`由 ${mapping.displayName || `${candidate.provider}/${candidate.model}`} 读取图片；当前模型保持为 ${current.model}。${replayModeNote}`)
         await replayNativeIntake(files)
       } catch (error) {
         showBanner(`图片映射失败：${error instanceof Error ? error.message : String(error)}`, true)

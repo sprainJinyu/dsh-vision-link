@@ -1,7 +1,8 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { apply, createReadOnlyMappingSnapshot, modelKey, SettingsSchema } from '../src/index.js'
+import { apply, buildEvidenceCacheKey, createReadOnlyMappingSnapshot, modelKey, SettingsSchema, attachmentIdentity } from '../src/index.js'
+import { intakeReplayMode } from '../src/intake-support.js'
 
 function userMessage(id, content) {
   return { id, role: 'user', source: { kind: 'user' }, content }
@@ -305,6 +306,97 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     bench.dispose()
   })
 
+  it('reuses historical visual evidence when the follow-up has no image', async () => {
+    const bench = createHarness({
+      'provider-a/text-chat': {
+        provider: 'provider-a', model: 'vision-chat', displayName: 'Vision', focusPreset: 'auto',
+      },
+    })
+    apply(bench.ctx, {})
+
+    await drain(bench.ctx.llm.stream({
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [userMessage('image-turn', [
+        { type: 'text', text: '先看看这张图里报错是什么？' },
+        { type: 'image', attachment: { attachmentId: 'img-follow-up' } },
+      ])],
+    }))
+    await drain(bench.ctx.llm.stream({
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [
+        userMessage('image-turn', [
+          { type: 'text', text: '先看看这张图里报错是什么？' },
+          { type: 'image', attachment: { attachmentId: 'img-follow-up' } },
+        ]),
+        userMessage('text-follow-up', [
+          { type: 'text', text: '那具体该怎么修？' },
+        ]),
+      ],
+    }))
+
+    assert.equal(bench.rawCalls.length, 3)
+    assert.deepEqual(
+      bench.rawCalls.map((call) => [call.provider, call.model]),
+      [['provider-a', 'vision-chat'], ['provider-a', 'text-chat'], ['provider-a', 'text-chat']],
+    )
+    const secondMainRequest = bench.rawCalls[2]
+    const secondMainText = secondMainRequest.messages
+      .flatMap((message) => message.content || [])
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+    assert.match(secondMainText, /那具体该怎么修？/)
+    assert.match(secondMainText, /\[视觉证据 图片#1；由 Vision 读取\]/)
+    assert.match(secondMainText, /图片显示 500 Internal Server Error/)
+    bench.dispose()
+  })
+
+  it('uses short hashed cache keys and stable anonymous attachment identities', () => {
+    const target = { provider: 'provider-a', model: 'vision-chat', focusPreset: 'auto' }
+    const left = {
+      type: 'image',
+      metadata: { b: 2, a: 1 },
+      attachment: { mime: 'image/png' },
+    }
+    const right = {
+      attachment: { mime: 'image/png' },
+      metadata: { a: 1, b: 2 },
+      type: 'image',
+    }
+
+    const leftIdentity = attachmentIdentity(left)
+    const rightIdentity = attachmentIdentity(right)
+    assert.match(leftIdentity, /^sha:[0-9a-f]{16}$/)
+    assert.equal(leftIdentity, rightIdentity)
+
+    const key = buildEvidenceCacheKey(left, target, '解释这个报错')
+    assert.match(key, /^vl1:[0-9a-f]{16}$/)
+    assert.doesNotMatch(key, /provider-a|vision-chat|解释这个报错|image\/png|\{/)
+  })
+
+  it('intake replay mode prefers native hooks, then paste fallback, then config assistant', () => {
+    assert.equal(intakeReplayMode({ canInspectModel: true, hasAddImages: true, hasTextarea: true }), 'native-add-images')
+    assert.equal(intakeReplayMode({ canInspectModel: true, hasAddImages: false, hasTextarea: true }), 'paste-fallback')
+    assert.equal(intakeReplayMode({ canInspectModel: true, hasAddImages: false, hasTextarea: false }), 'config-assistant')
+    assert.equal(intakeReplayMode({ canInspectModel: false, hasAddImages: true, hasTextarea: true }), 'config-assistant')
+  })
+
+  it('browser bundle keeps intake replay mode ordering aligned with src helper', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    const normalized = source.replace(/\s+/g, ' ')
+    assert.match(normalized, /if \(!canInspectModel\) return 'config-assistant'/)
+    assert.match(normalized, /if \(hasAddImages\) return 'native-add-images'/)
+    assert.match(normalized, /if \(hasTextarea\) return 'paste-fallback'/)
+    const configIndex = source.indexOf("return 'config-assistant'")
+    const nativeIndex = source.indexOf("return 'native-add-images'")
+    const pasteIndex = source.indexOf("return 'paste-fallback'")
+    assert.ok(configIndex >= 0 && nativeIndex >= 0 && pasteIndex >= 0)
+    assert.ok(configIndex < nativeIndex)
+    assert.ok(nativeIndex < pasteIndex)
+  })
+
   it('browser bundle has mapping management and no model-selection mutation', () => {
     const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
     assert.match(source, /settings\.plugins\.tab/)
@@ -321,6 +413,7 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     assert.match(source, /replayNativeIntake\(files\)/)
     assert.match(source, /nativeIntakeSupport/)
     assert.match(source, /配置助手模式/)
+    assert.match(source, /paste-fallback/)
     assert.doesNotMatch(source, /\.select\s*\(/)
     assert.doesNotMatch(source, /selectModel/)
   })

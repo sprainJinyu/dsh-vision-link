@@ -6,21 +6,24 @@ All notable changes to this project are documented here. The project follows Sem
 
 ### Added
 
-- Real-browser validation baseline and closeout summary documentation.
+- Real-browser validation baseline, documented in README and `docs/TROUBLESHOOTING.md`.
 - Regression checklist for writable settings, first-image mapping flow, native attachment replay, and route-preserving answer verification.
 
 ### Changed
 
 - Evidence-cache identity now includes the effective user question context, preventing stale visual evidence reuse when the same image is asked about differently.
+- Evidence-cache keys are hashed `vl1:` identities over a NUL-joined tuple (provider, model, focus, question, attachment), so anonymous attachments get a stable identity without putting unbounded JSON into the key.
 - Client-side degradation now reports explicit configuration-assistant guidance when DSH Web integration hooks are unavailable instead of failing silently.
+- Paste-fallback intake is a named replay mode with an explicit banner, instead of an unnamed textarea boolean.
 - README and troubleshooting docs now reflect the current writable-host reality while still documenting fallback behavior for older or restricted deployments.
 
 ### Testing
 
 - Added automated regression coverage for same-image same-question reuse and same-image different-question cache separation.
+- Added coverage for hashed cache keys, history follow-up without a new image, `intakeReplayMode` ordering, and client-bundle string alignment.
 - Verified the current local DSH host allows in-page `vision-link` settings writes and persists them into `settings.yaml`.
 - Verified real-browser first-image flow, native attachment replay, visible route preservation, and image-fact entry into the final answer path.
-- Attempted runtime cache hit/miss forensic logging; the added investigation now confirms that the profile installs a local link package and the browser half is served through the `./client -> client.js` export, so the remaining uncertainty is tracked as a Host / Client loading-surface investigation rather than a blocker for this repair pass.
+- The `DSH_VISION_LINK_DEBUG_CACHE` env switch is present in code, but its runtime output was not confirmed in the live host log sink during this release pass, so it should not be treated as a proven 1.2.1 diagnostic capability yet.
 
 ## [1.2.0] - 2026-08-20
 

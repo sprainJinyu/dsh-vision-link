@@ -55,6 +55,12 @@ Display names are not ids. Copy ids exactly, including punctuation and letter ca
 
 Use [`../examples/settings.yaml`](../examples/settings.yaml) as the indentation reference.
 
+## Multi-image waiting time / 多图等待时间
+
+Multiple images are currently read **serially**, not through a concurrency pool. Each image can take up to 60 seconds before timing out, so pasting 5 large images may leave the session waiting for several minutes.
+
+This is the current contract for 1.2.1: do not assume parallel image reads, and do not add a concurrency pool without real 429 / upstream-limit evidence.
+
 ## Vision read times out / 读图超时
 
 The default timeout is 60 seconds. Confirm that the mapped model is reachable and its credentials are valid. Administrators can set `visionTimeoutMs` in the plugin profile configuration.
@@ -74,7 +80,7 @@ Treat the following as the current high-value regression line for future changes
 1. **Writable Settings page**
    - Open `设置 → 插件 → 视觉映射` in DSH Web.
    - Confirm the page shows editable selects plus **保存映射 / 编辑 / 删除** instead of read-only YAML-only guidance.
-   - Save a mapping and verify it is written into `settings.yaml` under `vision-link.mappings`.
+   - Save a mapping and verify it is written into the DSH workspace `settings.yaml` under `vision-link.mappings`.
 
 2. **First-image mapping flow**
    - In a text-only model session, paste one image.
@@ -87,8 +93,9 @@ Treat the following as the current high-value regression line for future changes
    - Confirm the response includes facts visible only in the image, proving the image was actually read.
 
 4. **Same-image repeated question baseline**
-   - Reuse the same image in the same session with a different question.
+   - Reuse the same image in the same session with a different question **while the new message still carries that image**.
    - Expected result after this repair pass: future forensic logging should show a cache miss for the changed question, not stale evidence reuse.
+   - Pure text follow-up questions that do not carry the image are a different contract: they reuse the earlier visual evidence already in history instead of re-reading the image.
    - If additional debug logging is temporarily enabled, record cache key, question summary, and hit/miss as the strongest regression evidence.
 
 ### Current completion status / 本次完成情况
@@ -96,7 +103,7 @@ Treat the following as the current high-value regression line for future changes
 Verified in the current local DSH environment:
 
 - ✅ Plugin settings are writable from the Web page on the current DSH build.
-- ✅ Saving from the page writes the mapping into `D:\develop\dsh\settings.yaml`.
+- ✅ Saving from the page writes the mapping into the DSH workspace `settings.yaml`.
 - ✅ Pasting an image in a text-model session triggers the first-image mapping flow.
 - ✅ `保存并加入图片` replays the image into the composer as a native attachment.
 - ✅ The visible selected model remains the original text model (route-preserving behavior holds).

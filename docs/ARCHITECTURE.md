@@ -30,9 +30,10 @@ The second call is intentionally made through `ctx.llm.stream()` with the origin
 
 - Image-capable candidates are joined from DSH's model catalog and `llm-pi-ai` Settings declarations.
 - Same-provider candidates sort first.
-- Normal installations render a read-only mapping view and YAML generator.
-- If a future/modified DSH Host explicitly exposes the `vision-link` Settings namespace, the existing managed editor can create, update, and remove mappings.
+- Current DSH Host can persist mappings from the plugin page into `settings.yaml`.
+- Older or restricted Hosts stay read-only: the page shows mapping cards and a YAML generator, and operators edit `settings.yaml` directly.
 - The paste/drop convenience path depends on current DSH Web client integration points; when those hooks are unavailable, the client degrades to explicit configuration guidance instead of silently switching models or mutating browser-local state.
+- That convenience path currently relies on undocumented Web Fiber/DOM integration points and is therefore best-effort: until DSH exposes a formal extension seam, hook failure is treated as a supported degradation path rather than a hidden error.
 
 No mapping is stored in LocalStorage, so browser state cannot diverge from the server configuration.
 

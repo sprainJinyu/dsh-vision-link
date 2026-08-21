@@ -47,6 +47,11 @@ Run inside your DSH workspace directory:
 npx -y @deepseek-ai/dsh plugin --profile web add dsh-vision-link
 ```
 
+> [!IMPORTANT]
+> If the npm tag still shows `1.2.0`, install from the git repo or a local path instead of trusting the changelog alone. Remove this note after npm actually publishes `1.2.1`.
+>
+> Do not stack `dsh-vision-link` with other paste-intercept plugins such as `modlens`, `image-bridge`, or `vision-toolkit` on the same DSH Web page. They may compete for the same paste/drop hook and make image intake behavior ambiguous.
+
 Start or restart DSH Web:
 
 ```bash
@@ -188,11 +193,12 @@ Tailored for real engineering workflows, `dsh-vision-link` provides 6 built-in e
 After this repair pass and real-browser validation, `dsh-vision-link` has been confirmed to provide the following stable behavior:
 
 - ✅ The current DSH build / host now exposes writable in-page `vision-link` configuration, so mappings can be saved directly from the plugin page.
-- ✅ Saved mappings are actually written back into `D:\develop\dsh\settings.yaml`.
+- ✅ Saved mappings are actually written back into the DSH workspace `settings.yaml`.
 - ✅ First-image paste triggers the vision-target selection dialog, and **Save & Attach** replays the image back into the composer as a native attachment.
 - ✅ The visible main model remains unchanged before and after send, so the route-preserving contract holds in real use.
 - ✅ A fresh-session live test proved that image-only facts enter the final answer path rather than remaining only at the attachment-display layer.
-- ✅ The same-image / different-question stale-cache issue is fixed in code and covered by the automated test suite, which now passes 11/11.
+- ✅ The same-image / different-question stale-cache issue is fixed in code and covered by the automated test suite, which now passes 15/15.
+- ⚠️ The strongest live hit/miss forensic proof for same-image / different-question cache separation is still not closed in runtime logs, so this behavior should currently be treated as unit-tested rather than live-forensically proven.
 
 ### Next optimization directions
 
