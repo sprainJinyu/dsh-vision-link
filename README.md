@@ -132,7 +132,7 @@ sequenceDiagram
     participant TextLLM as 🧠 Text Model (DeepSeek-V4-Flash)
 
     User->>Client: Paste Screenshot (Ctrl+V) + Enter Question
-    Note over Client: Composer retains native thumbnail; model route stays unchanged
+    Note over Client: Composer retains native thumbnail, model route stays unchanged
     Client->>Plugin: Request initiated (Original route preserved)
     Plugin->>VisionLLM: Stream extraction of structured visual facts & OCR
     VisionLLM-->>Plugin: Returns clean, compact Markdown evidence
