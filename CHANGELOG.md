@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project follows Semantic Versioning.
 
+## [1.2.2] - 2026-08-24
+
+### Changed
+
+- Native image intake now trusts Host `listModels().inputModalities` via a loopback catalog projection. Catalog image routes (official vision-exp, Doubao, GPT, …) keep DSH paste/drop; text-only routes still use the sidecar mapping flow.
+
 ## [1.2.1] - 2026-08-21
 
 ### Added

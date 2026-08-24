@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { apply, buildEvidenceCacheKey, createReadOnlyMappingSnapshot, modelKey, SettingsSchema, attachmentIdentity } from '../src/index.js'
+import { apply, buildEvidenceCacheKey, createReadOnlyMappingSnapshot, listNativeImageModels, modelKey, SettingsSchema, attachmentIdentity } from '../src/index.js'
 import { intakeReplayMode } from '../src/intake-support.js'
 
 function userMessage(id, content) {
@@ -43,6 +43,23 @@ function createHarness(initialMappings = {}) {
     },
     llm: {
       resolveModelInfo: resolveNative,
+      listProviders() {
+        return [{ id: 'provider-a', name: 'A' }, { id: 'provider-b', name: 'B' }]
+      },
+      async listModels(provider) {
+        if (provider === 'provider-a') {
+          return [
+            { provider, id: 'text-chat', name: 'text-chat', inputModalities: ['text'] },
+            { provider, id: 'vision-chat', name: 'vision-chat', inputModalities: ['text', 'image'] },
+          ]
+        }
+        if (provider === 'provider-b') {
+          return [
+            { provider, id: 'vision-ocr', name: 'vision-ocr', inputModalities: ['text', 'image'] },
+          ]
+        }
+        return []
+      },
       stream(options) {
         const downstream = () => rawStream(options)
         return streamListener ? streamListener(options, downstream) : downstream()
@@ -233,6 +250,45 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     assert.doesNotMatch(JSON.stringify(snapshot), /must-not-leak|also-private|apiKey/)
   })
 
+  it('projects native image models from listModels, not overlayed resolveModelInfo', async () => {
+    const bench = createHarness({
+      'provider-a/text-chat': {
+        provider: 'provider-a', model: 'vision-chat', displayName: 'Vision', focusPreset: 'auto',
+      },
+    })
+    apply(bench.ctx, {})
+    assert.deepEqual(
+      (await bench.ctx.llm.resolveModelInfo('provider-a', 'text-chat')).inputModalities,
+      ['text', 'image'],
+    )
+    const listed = await listNativeImageModels(bench.ctx.llm)
+    assert.deepEqual(listed.map((entry) => `${entry.provider}/${entry.model}`), [
+      'provider-a/vision-chat',
+      'provider-b/vision-ocr',
+    ])
+    const registration = bench.rpcRegistrations[0]
+    const rpc = await registration.handler('models.native-image', {})
+    assert.equal(rpc.ok, true)
+    assert.deepEqual(rpc.value.models.map((entry) => `${entry.provider}/${entry.model}`), [
+      'provider-a/vision-chat',
+      'provider-b/vision-ocr',
+    ])
+  })
+
+  it('skips a provider whose listModels fails without dropping the rest', async () => {
+    const llm = {
+      listProviders() {
+        return [{ id: 'broken' }, { id: 'provider-a' }]
+      },
+      async listModels(provider) {
+        if (provider === 'broken') throw new Error('catalog down')
+        return [{ provider, id: 'vision-chat', name: 'vision-chat', inputModalities: ['text', 'image'] }]
+      },
+    }
+    const listed = await listNativeImageModels(llm)
+    assert.deepEqual(listed, [{ provider: 'provider-a', model: 'vision-chat', name: 'vision-chat' }])
+  })
+
   it('returns a friendly result and does not call the text adapter when no mapping exists', async () => {
     const bench = createHarness()
     apply(bench.ctx, {})
@@ -400,6 +456,8 @@ describe('DSH Vision Link route-preserving sidecar', () => {
   it('browser bundle has mapping management and no model-selection mutation', () => {
     const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
     assert.match(source, /settings\.plugins\.tab/)
+    assert.match(source, /models\.native-image/)
+    assert.match(source, /nativeImageKeys/)
     assert.match(source, /inputModalities\.includes\('image'\)/)
     assert.match(source, /同分组优先/)
     assert.match(source, /api\.settings\.mutate/)

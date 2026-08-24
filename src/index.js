@@ -10,6 +10,7 @@ export const inject = ['attachments', 'llm', 'settings']
 const SETTINGS_NAMESPACE = 'vision-link'
 const READ_ONLY_RPC_CHANNEL = '/vision-link-rpc'
 const READ_ONLY_RPC_ENDPOINT = 'mappings.describe'
+const NATIVE_IMAGE_RPC_ENDPOINT = 'models.native-image'
 const DEFAULT_TIMEOUT_MS = 60_000
 const MAX_CACHE_ENTRIES = 64
 const WRAPPER_PREFIXES = ['vision-link-', 'modlens-']
@@ -36,7 +37,37 @@ export function createReadOnlyMappingSnapshot(settings) {
   return { mode: 'read-only', mappings }
 }
 
-function installReadOnlyMappingRpc(ctx, getSettings) {
+/**
+ * Adapter catalog rows that already declare image input. Uses listModels, not
+ * overlayed resolveModelInfo, so mapped text routes are not treated as native.
+ */
+export async function listNativeImageModels(llm) {
+  const providers = typeof llm?.listProviders === 'function' ? llm.listProviders() : []
+  const models = []
+  for (const provider of providers) {
+    const providerId = typeof provider === 'string' ? provider : provider?.id
+    if (!providerId || isWrapperProvider(providerId)) continue
+    let listed = []
+    try {
+      listed = await llm.listModels(providerId)
+    } catch {
+      continue
+    }
+    for (const model of listed || []) {
+      if (!model?.id) continue
+      if (!Array.isArray(model.inputModalities) || !model.inputModalities.includes('image')) continue
+      models.push({
+        provider: model.provider || providerId,
+        model: model.id,
+        ...(model.name ? { name: model.name } : {}),
+      })
+    }
+  }
+  models.sort((left, right) => left.provider.localeCompare(right.provider) || left.model.localeCompare(right.model))
+  return models
+}
+
+function installReadOnlyMappingRpc(ctx, getSettings, llm) {
   ctx.connection.rpc.handle(
     READ_ONLY_RPC_CHANNEL,
     async (endpoint, payload) => {
@@ -44,7 +75,7 @@ function installReadOnlyMappingRpc(ctx, getSettings) {
         && typeof payload === 'object'
         && !Array.isArray(payload)
         && Object.keys(payload).length === 0
-      if (endpoint !== READ_ONLY_RPC_ENDPOINT || !plainPayload) {
+      if (!plainPayload) {
         return {
           ok: false,
           error: {
@@ -54,7 +85,20 @@ function installReadOnlyMappingRpc(ctx, getSettings) {
           },
         }
       }
-      return { ok: true, value: createReadOnlyMappingSnapshot(getSettings()) }
+      if (endpoint === READ_ONLY_RPC_ENDPOINT) {
+        return { ok: true, value: createReadOnlyMappingSnapshot(getSettings()) }
+      }
+      if (endpoint === NATIVE_IMAGE_RPC_ENDPOINT) {
+        return { ok: true, value: { models: await listNativeImageModels(llm) } }
+      }
+      return {
+        ok: false,
+        error: {
+          code: 'bad-request',
+          message: 'vision-link: unsupported read-only request',
+          details: { issues: [] },
+        },
+      }
     },
     // Mapping configuration is privileged deployment metadata. Match DSH's
     // Settings plane by keeping this read-only projection loopback-only.
@@ -436,7 +480,7 @@ export function apply(ctx, config = {}) {
   // guarded generic RPC extension point.
   ctx.inject?.(['connection'], (rpcCtx) => {
     if (typeof rpcCtx.connection?.rpc?.handle === 'function') {
-      installReadOnlyMappingRpc(rpcCtx, () => settings)
+      installReadOnlyMappingRpc(rpcCtx, () => settings, ctx.llm)
     }
   })
 

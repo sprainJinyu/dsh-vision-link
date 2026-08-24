@@ -28,7 +28,7 @@ The second call is intentionally made through `ctx.llm.stream()` with the origin
 
 ## Client components
 
-- Image-capable candidates are joined from DSH's model catalog and `llm-pi-ai` Settings declarations.
+- Image-capable candidates come from Host `listModels().inputModalities`, not from adapter-specific Settings YAML. Mapped text routes are excluded because the overlay on `resolveModelInfo` is not consulted.
 - Same-provider candidates sort first.
 - Current DSH Host can persist mappings from the plugin page into `settings.yaml`.
 - Older or restricted Hosts stay read-only: the page shows mapping cards and a YAML generator, and operators edit `settings.yaml` directly.

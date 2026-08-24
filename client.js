@@ -19,6 +19,7 @@ window.__ModuleLoader__.load({
     const SETTINGS_NS = 'vision-link'
     const READ_ONLY_RPC_CHANNEL = '/vision-link-rpc'
     const READ_ONLY_RPC_ENDPOINT = 'mappings.describe'
+    const NATIVE_IMAGE_RPC_ENDPOINT = 'models.native-image'
     const STYLE_ID = 'vision-link-style'
     const TOAST_ID = 'vision-link-client-toast'
     const DIALOG_ID = 'vision-link-mapping-dialog'
@@ -35,6 +36,8 @@ window.__ModuleLoader__.load({
     let connectionRpc = null
     let intakeBusy = false
     let replayingNativeImageIntake = false
+    let nativeImageKeys = new Set()
+    let nativeImageReady = false
 
     function installStyles() {
       if (document.getElementById(STYLE_ID)) return
@@ -145,22 +148,31 @@ window.__ModuleLoader__.load({
       return response.result.value
     }
 
-    function configuredImageModelKeys(settingsRoot) {
-      const piSettings = settingsRoot.namespaces.find((entry) => entry.ns === 'llm-pi-ai')?.value
-      const providers = piSettings?.providers || {}
-      const keys = new Set()
-      Object.entries(providers).forEach(([provider, config]) => {
-        const providerInput = Array.isArray(config?.defaultInput) ? config.defaultInput : []
-        ;(Array.isArray(config?.models) ? config.models : []).forEach((model) => {
-          const declaredInput = Array.isArray(model?.input) && model.input.length > 0
-            ? model.input
-            : providerInput
-          if (typeof model?.id === 'string' && declaredInput.includes('image')) {
-            keys.add(modelKey(provider, model.id))
-          }
-        })
-      })
-      return keys
+    function rememberNativeImageModels(models) {
+      nativeImageKeys = new Set((models || []).map((entry) => modelKey(entry.provider, entry.model)))
+      nativeImageReady = true
+    }
+
+    async function refreshNativeImageKeys() {
+      if (!connectionRpc) {
+        rememberNativeImageModels([])
+        return []
+      }
+      try {
+        const result = await connectionRpc.call(READ_ONLY_RPC_CHANNEL, NATIVE_IMAGE_RPC_ENDPOINT, {})
+        if (!result?.ok) throw new Error(result?.error?.message || '原生看图模型接口不可用')
+        const models = result.value?.models || []
+        rememberNativeImageModels(models)
+        return models
+      } catch (error) {
+        console.warn('[dsh-vision-link] native image catalog unavailable:', error)
+        rememberNativeImageModels([])
+        return []
+      }
+    }
+
+    function isNativeImageModel(provider, model) {
+      return nativeImageKeys.has(modelKey(provider, model))
     }
 
     async function readOnlyMappingSnapshot() {
@@ -176,19 +188,19 @@ window.__ModuleLoader__.load({
     }
 
     async function loadState(preferredProvider) {
-      const [catalogResponse, settingsResponse, readOnlySnapshot] = await Promise.all([
+      const [catalogResponse, settingsResponse, readOnlySnapshot, nativeImageModels] = await Promise.all([
         api.llm.models({}),
         api.settings.describe({}),
         readOnlyMappingSnapshot(),
+        refreshNativeImageKeys(),
       ])
       const catalog = unwrap(catalogResponse, '模型目录')
       const settingsRoot = unwrap(settingsResponse, '视觉映射设置')
       const settings = settingsRoot.namespaces.find((entry) => entry.ns === SETTINGS_NS)
 
-      // `llm.models` intentionally exposes selector data only and omits modality
-      // metadata. The user's configured pi-ai catalog is the source of truth for
-      // explicit image declarations, so join it to the runtime catalog by route.
-      const imageModelKeys = configuredImageModelKeys(settingsRoot)
+      // Web selector catalogs omit modalities. Native image routes come from
+      // Host listModels via the loopback projection, not from Settings YAML.
+      const imageModelKeys = new Set((nativeImageModels || []).map((entry) => modelKey(entry.provider, entry.model)))
 
       const groups = (catalog.groups || []).filter((group) => !isWrapperProvider(group.id))
       const allModels = groups.flatMap((group) => (group.models || []).map((model) => ({
@@ -383,9 +395,7 @@ window.__ModuleLoader__.load({
         showBanner('当前页面无法确认所选文本模型，vision-link 已降级为配置助手。请先确认 settings.yaml 映射，或刷新/重启 DSH 后重试。', true)
         return
       }
-      const group = support.modelState.groups?.find((entry) => entry.id === current.provider)
-      const currentInfo = group?.models?.find((entry) => entry.id === current.model)
-      if (currentInfo?.inputModalities?.includes('image')) return
+      if (!nativeImageReady || isNativeImageModel(current.provider, current.model)) return
       if (!support.canReplayImages) {
         showBanner(`当前 DSH 页面未暴露图片回放接口；vision-link 只能保留配置助手模式。请在 settings.yaml 配置映射后手动发送，当前模型保持为 ${current.model}。`, true)
         return
@@ -687,6 +697,7 @@ window.__ModuleLoader__.load({
       api = connection?.api
       connectionRpc = connection?.rpc || null
       if (!api) throw new Error('dsh-vision-link: connection service unavailable')
+      void refreshNativeImageKeys()
 
       ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
         name: 'settings.plugins.tab',

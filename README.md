@@ -195,7 +195,7 @@ After this repair pass and real-browser validation, `dsh-vision-link` has been c
 - ✅ First-image paste triggers the vision-target selection dialog, and **Save & Attach** replays the image back into the composer as a native attachment.
 - ✅ The visible main model remains unchanged before and after send, so the route-preserving contract holds in real use.
 - ✅ A fresh-session live test proved that image-only facts enter the final answer path rather than remaining only at the attachment-display layer.
-- ✅ The same-image / different-question stale-cache issue is fixed in code and covered by the automated test suite, which now passes 15/15.
+- ✅ The same-image / different-question stale-cache issue is fixed in code and covered by the automated test suite, which now passes 17/17.
 - ⚠️ The strongest live hit/miss forensic proof for same-image / different-question cache separation is still not closed in runtime logs, so this behavior should currently be treated as unit-tested rather than live-forensically proven.
 
 ### Next optimization directions
