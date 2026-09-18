@@ -106,6 +106,80 @@ function installReadOnlyMappingRpc(ctx, getSettings, llm) {
   )
 }
 
+function installWebServerRpc(ctx, getSettings, llm) {
+  const route = {
+    kind: 'prefix',
+    path: READ_ONLY_RPC_CHANNEL,
+    handler: async (req, res) => {
+      if (req.method !== 'POST') {
+        res.writeHead(405)
+        res.end()
+        return
+      }
+      const rawPath = new URL(req.url ?? '/', 'http://127.0.0.1').pathname
+      const prefix = READ_ONLY_RPC_CHANNEL + '/'
+      if (!rawPath.startsWith(prefix)) {
+        res.writeHead(404)
+        res.end('not found')
+        return
+      }
+      const endpoint = rawPath.slice(prefix.length)
+      let bodyText = ''
+      for await (const chunk of req) {
+        bodyText += chunk
+      }
+      let body = {}
+      if (bodyText) {
+        try {
+          body = JSON.parse(bodyText)
+        } catch {
+          res.writeHead(400)
+          res.end('bad json')
+          return
+        }
+      }
+      const rpcId = body?.rpcId || 'vision-link-rpc'
+      const payload = body?.payload ?? {}
+      const plainPayload = payload !== null
+        && typeof payload === 'object'
+        && !Array.isArray(payload)
+        && Object.keys(payload).length === 0
+
+      let result
+      if (!plainPayload) {
+        result = {
+          ok: false,
+          error: {
+            code: 'bad-request',
+            message: 'vision-link: unsupported read-only request',
+            details: { issues: [] },
+          },
+        }
+      } else if (endpoint === READ_ONLY_RPC_ENDPOINT) {
+        result = { ok: true, value: createReadOnlyMappingSnapshot(getSettings()) }
+      } else if (endpoint === NATIVE_IMAGE_RPC_ENDPOINT) {
+        result = { ok: true, value: { models: await listNativeImageModels(llm) } }
+      } else {
+        result = {
+          ok: false,
+          error: {
+            code: 'bad-request',
+            message: 'vision-link: unsupported read-only request',
+            details: { issues: [] },
+          },
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        type: 'server-response',
+        rpcId,
+        result,
+      }))
+    },
+  }
+  ctx.effect?.(() => ctx.webServer.register(route), 'vision-link: webserver rpc channel')
+}
+
 const VISION_SYSTEM_PROMPT = `你是视觉证据提取器。只根据图片中实际可见的信息输出，不要猜测。
 
 请依次提供：
@@ -475,12 +549,27 @@ export function apply(ctx, config = {}) {
   settings = scope.get()
   scope.watch((next) => { settings = next })
 
-  // Connection is a Web-host capability, not a requirement for CLI use. When
-  // present, expose only the sanitized live mapping snapshot through DSH's
-  // guarded generic RPC extension point.
+  // Direct webServer route registration: bypasses DSH client-connection's missing
+  // webServer inject defect and guarantees /vision-link-rpc is served on the web host.
+  ctx.inject?.(['webServer'], (webCtx) => {
+    try {
+      if (typeof webCtx.webServer?.register === 'function') {
+        installWebServerRpc(webCtx, () => settings, ctx.llm)
+      }
+    } catch (error) {
+      console.warn('[dsh-vision-link] webServer route registration failed:', error)
+    }
+  })
+
+  // Connection RPC registration: retained for backward compatibility with older
+  // DSH harnesses or test environments where connection carries rpc.handle.
   ctx.inject?.(['connection'], (rpcCtx) => {
-    if (typeof rpcCtx.connection?.rpc?.handle === 'function') {
-      installReadOnlyMappingRpc(rpcCtx, () => settings, ctx.llm)
+    try {
+      if (typeof rpcCtx.connection?.rpc?.handle === 'function') {
+        installReadOnlyMappingRpc(rpcCtx, () => settings, ctx.llm)
+      }
+    } catch (error) {
+      console.warn('[dsh-vision-link] connection rpc registration failed:', error)
     }
   })
 

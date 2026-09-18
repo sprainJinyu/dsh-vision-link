@@ -15,6 +15,7 @@ function createHarness(initialMappings = {}) {
   const rawCalls = []
   const effects = []
   const rpcRegistrations = []
+  const webRoutes = []
 
   const resolveNative = async (provider, model) => ({
     provider,
@@ -74,16 +75,33 @@ function createHarness(initialMappings = {}) {
       effects.push(factory())
     },
     inject(dependencies, callback) {
-      assert.deepEqual(dependencies, ['connection'])
-      callback({
-        connection: {
-          rpc: {
-            handle(channel, handler, options) {
-              rpcRegistrations.push({ channel, handler, options })
+      if (dependencies.includes('webServer')) {
+        callback({
+          webServer: {
+            register(route) {
+              webRoutes.push(route)
+              return () => {
+                const idx = webRoutes.indexOf(route)
+                if (idx !== -1) webRoutes.splice(idx, 1)
+              }
             },
           },
-        },
-      })
+          effect(factory) {
+            effects.push(factory())
+          },
+        })
+      }
+      if (dependencies.includes('connection')) {
+        callback({
+          connection: {
+            rpc: {
+              handle(channel, handler, options) {
+                rpcRegistrations.push({ channel, handler, options })
+              },
+            },
+          },
+        })
+      }
     },
   }
 
@@ -104,6 +122,7 @@ function createHarness(initialMappings = {}) {
     ctx,
     rawCalls,
     rpcRegistrations,
+    webRoutes,
     updateMappings(next) {
       const previous = settings
       settings = SettingsSchema({ mappings: next })
@@ -474,5 +493,325 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     assert.match(source, /paste-fallback/)
     assert.doesNotMatch(source, /\.select\s*\(/)
     assert.doesNotMatch(source, /selectModel/)
+  })
+
+  it('browser bundle initializes successfully on modern DSH context without connection.api', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    let factory = null
+    const origWindow = globalThis.window
+    const origDoc = globalThis.document
+    try {
+      globalThis.window = {
+        __ModuleLoader__: {
+          load({ factory: f }) { factory = f },
+        },
+      }
+      globalThis.document = {
+        getElementById: () => null,
+        createElement: () => ({ setAttribute: () => {}, appendChild: () => {}, remove: () => {} }),
+        head: { appendChild: () => {} },
+        body: { appendChild: () => {} },
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }
+      // eslint-disable-next-line no-eval
+      eval(source)
+      assert.ok(typeof factory === 'function')
+      const plugin = factory((id) => {
+        if (id === 'react') return { createElement: () => {} }
+        throw new Error(`unknown module ${id}`)
+      })
+      assert.equal(plugin.name, 'dsh-vision-link')
+      assert.deepEqual(plugin.inject, ['slots', 'connection', 'remote', 'remote.session', 'remote.settings'])
+
+      let registered = null
+      const modernRemote = {
+        session: {
+          modelCatalog: async () => ({ ok: true, value: { groups: [] } }),
+        },
+        settings: {
+          describe: async () => ({ ok: true, value: { writable: true, namespaces: [] } }),
+          mutate: async () => ({ ok: true, value: {} }),
+        },
+      }
+      const modernCtx = {
+        remote: modernRemote,
+        get(name) {
+          if (name === 'connection') {
+            return {
+              isLoopback: true,
+              rpc: { call: async () => ({ ok: true, value: {} }) },
+            }
+          }
+          if (name === 'remote') return modernRemote
+          if (name === 'remote.session') return modernRemote.session
+          if (name === 'remote.settings') return modernRemote.settings
+          return undefined
+        },
+        slots: {
+          inject: (_name, cb) => cb(),
+          register: (meta, component) => { registered = { meta, component } },
+        },
+      }
+
+      const cleanup = plugin.apply(modernCtx)
+      assert.ok(registered)
+      assert.equal(registered.meta.id, 'vision-link')
+      assert.equal(registered.meta.label, '视觉映射')
+      assert.equal(typeof cleanup, 'function')
+      cleanup()
+    } finally {
+      globalThis.window = origWindow
+      globalThis.document = origDoc
+    }
+  })
+
+  it('browser bundle initializes successfully with legacy connection.api fallback', () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    let factory = null
+    const origWindow = globalThis.window
+    const origDoc = globalThis.document
+    try {
+      globalThis.window = {
+        __ModuleLoader__: {
+          load({ factory: f }) { factory = f },
+        },
+      }
+      globalThis.document = {
+        getElementById: () => null,
+        createElement: () => ({ setAttribute: () => {}, appendChild: () => {}, remove: () => {} }),
+        head: { appendChild: () => {} },
+        body: { appendChild: () => {} },
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }
+      // eslint-disable-next-line no-eval
+      eval(source)
+      const plugin = factory((id) => {
+        if (id === 'react') return { createElement: () => {} }
+        throw new Error(`unknown module ${id}`)
+      })
+
+      let registered = null
+      const legacyCtx = {
+        get(name) {
+          if (name === 'connection') {
+            return {
+              api: {
+                llm: { models: async () => ({ result: { ok: true, value: { groups: [] } } }) },
+                settings: { describe: async () => ({ result: { ok: true, value: { writable: true, namespaces: [] } } }) },
+              },
+              rpc: { call: async () => ({ ok: true, value: {} }) },
+            }
+          }
+          return undefined
+        },
+        slots: {
+          inject: (_name, cb) => cb(),
+          register: (meta, component) => { registered = { meta, component } },
+        },
+      }
+
+      const cleanup = plugin.apply(legacyCtx)
+      assert.ok(registered)
+      assert.equal(registered.meta.id, 'vision-link')
+      assert.equal(typeof cleanup, 'function')
+      cleanup()
+    } finally {
+      globalThis.window = origWindow
+      globalThis.document = origDoc
+    }
+  })
+
+  it('registers direct webServer route and serves native image models and mappings', async () => {
+    const bench = createHarness({
+      'provider-a/text-chat': {
+        provider: 'provider-a', model: 'vision-chat', displayName: 'Vision', focusPreset: 'ocr',
+      },
+    })
+    apply(bench.ctx, {})
+    assert.equal(bench.webRoutes.length, 1)
+    const route = bench.webRoutes[0]
+    assert.equal(route.kind, 'prefix')
+    assert.equal(route.path, '/vision-link-rpc')
+
+    // Helper to simulate request/response
+    const mockRequest = (endpoint, payload) => {
+      const req = (async function* () {
+        yield Buffer.from(JSON.stringify({
+          type: 'client-request',
+          rpcId: 'test-rpc-1',
+          method: endpoint,
+          payload,
+        }))
+      })()
+      req.method = 'POST'
+      req.url = `/vision-link-rpc/${endpoint}`
+
+      let statusCode = 0
+      let headers = {}
+      let body = ''
+      const res = {
+        writeHead(code, h) { statusCode = code; headers = h },
+        end(data) { if (data) body += data },
+      }
+      return { req, res, getResult: () => ({ statusCode, headers, body: JSON.parse(body || '{}') }) }
+    }
+
+    // Test models.native-image endpoint
+    const { req: req1, res: res1, getResult: getResult1 } = mockRequest('models.native-image', {})
+    await route.handler(req1, res1)
+    const out1 = getResult1()
+    assert.equal(out1.statusCode, 200)
+    assert.equal(out1.body.type, 'server-response')
+    assert.equal(out1.body.rpcId, 'test-rpc-1')
+    assert.ok(out1.body.result?.ok)
+    assert.deepEqual(out1.body.result.value.models, [
+      { provider: 'provider-a', model: 'vision-chat', name: 'vision-chat' },
+      { provider: 'provider-b', model: 'vision-ocr', name: 'vision-ocr' },
+    ])
+
+    // Test mappings.describe endpoint
+    const { req: req2, res: res2, getResult: getResult2 } = mockRequest('mappings.describe', {})
+    await route.handler(req2, res2)
+    const out2 = getResult2()
+    assert.equal(out2.statusCode, 200)
+    assert.ok(out2.body.result?.ok)
+    assert.equal(out2.body.result.value.mappings[0]?.model, 'vision-chat')
+  })
+
+  it('browser bundle discovers candidate vision models from settings namespaces', async () => {
+    const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+    let factory = null
+    const origWindow = globalThis.window
+    const origDoc = globalThis.document
+    try {
+      globalThis.window = {
+        __ModuleLoader__: { load({ factory: f }) { factory = f } },
+      }
+      globalThis.document = {
+        getElementById: () => null,
+        createElement: () => ({ setAttribute: () => {}, appendChild: () => {}, remove: () => {} }),
+        head: { appendChild: () => {} },
+        body: { appendChild: () => {} },
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }
+      // eslint-disable-next-line no-eval
+      eval(source)
+      let componentFn = null
+      let mockReactState = []
+      let stateIndex = 0
+      const mockReact = {
+        createElement: () => ({}),
+        useState(initial) {
+          const idx = stateIndex++
+          if (mockReactState[idx] === undefined) {
+            mockReactState[idx] = typeof initial === 'function' ? initial() : initial
+          }
+          return [mockReactState[idx], (updater) => {
+            mockReactState[idx] = typeof updater === 'function' ? updater(mockReactState[idx]) : updater
+          }]
+        },
+        useCallback: (fn) => fn,
+        useEffect: (cb) => { cb() },
+      }
+      const plugin = factory((id) => {
+        if (id === 'react') return mockReact
+        throw new Error(`unknown module ${id}`)
+      })
+
+      const testSettings = {
+        writable: true,
+        namespaces: [
+          {
+            ns: 'llm-pi-ai',
+            value: {
+              providers: {
+                'top-zjy': {
+                  displayName: 'Top ZJY',
+                  models: [
+                    { id: 'ds-v4-flash', name: 'ds-v4-flash', input: ['text'] },
+                    { id: 'qwen3.8-max', name: 'qwen3.8-max-top', input: ['text', 'image'] },
+                  ],
+                },
+                'gemini-free': {
+                  displayName: 'Google Gemini',
+                  models: [
+                    { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', input: ['text', 'image'] },
+                  ],
+                },
+              },
+            },
+          },
+        ],
+      }
+
+      const testCatalog = {
+        groups: [
+          {
+            id: 'top-zjy',
+            name: 'Top ZJY',
+            models: [
+              { id: 'ds-v4-flash', name: 'ds-v4-flash' },
+              { id: 'qwen3.8-max', name: 'qwen3.8-max-top' },
+            ],
+          },
+          {
+            id: 'gemini-free',
+            name: 'Google Gemini',
+            models: [
+              { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash' },
+            ],
+          },
+        ],
+      }
+
+      const mockCtx = {
+        remote: {
+          session: { modelCatalog: async () => ({ ok: true, value: testCatalog }) },
+          settings: {
+            describe: async () => ({ ok: true, value: testSettings }),
+            mutate: async () => ({ ok: true, value: {} }),
+          },
+        },
+        get(name) {
+          if (name === 'connection') {
+            return {
+              isLoopback: true,
+              rpc: { call: async () => ({ ok: true, value: { models: [] } }) }, // simulated empty RPC
+            }
+          }
+          if (name === 'remote') return this.remote
+          if (name === 'remote.session') return this.remote.session
+          if (name === 'remote.settings') return this.remote.settings
+          return undefined
+        },
+        slots: {
+          inject: (_name, cb) => cb(),
+          register: (_meta, comp) => { componentFn = comp },
+        },
+      }
+
+      plugin.apply(mockCtx)
+      assert.ok(componentFn)
+
+      // Verify the component renders and calls load
+      stateIndex = 0
+      componentFn()
+      // Let load callback complete
+      await new Promise((r) => setTimeout(r, 20))
+      // Check that state.data has visionModels populated from settings
+      const stateObj = mockReactState[0]
+      assert.equal(stateObj.status, 'ready')
+      assert.equal(stateObj.data.visionModels.length, 2)
+      assert.ok(stateObj.data.visionModels.some((m) => m.model === 'qwen3.8-max'))
+      assert.ok(stateObj.data.visionModels.some((m) => m.model === 'gemini-3.5-flash'))
+      assert.equal(stateObj.data.textModels.length, 1)
+      assert.equal(stateObj.data.textModels[0].model, 'ds-v4-flash')
+    } finally {
+      globalThis.window = origWindow
+      globalThis.document = origDoc
+    }
   })
 })

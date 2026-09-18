@@ -144,8 +144,73 @@ window.__ModuleLoader__.load({
     }
 
     function unwrap(response, label) {
-      if (!response?.result?.ok) throw new Error(response?.result?.error?.message || `${label}不可用`)
-      return response.result.value
+      if (response && typeof response === 'object') {
+        if (response.result && typeof response.result === 'object') {
+          if (!response.result.ok) throw new Error(response.result.error?.message || `${label}不可用`)
+          return response.result.value
+        }
+        if ('ok' in response) {
+          if (!response.ok) throw new Error(response.error?.message || `${label}不可用`)
+          return response.value
+        }
+      }
+      return response
+    }
+
+    function createApiAdapter(ctx) {
+      const connection = ctx?.get?.('connection') || ctx?.connection
+      const legacyApi = connection?.api
+      let remote = null
+      let sessionRemote = null
+      let settingsRemote = null
+      try {
+        remote = ctx?.get?.('remote') || ctx?.remote
+      } catch {
+        remote = null
+      }
+      try {
+        sessionRemote = ctx?.get?.('remote.session') || ctx?.['remote.session'] || remote?.session
+      } catch {
+        sessionRemote = null
+      }
+      try {
+        settingsRemote = ctx?.get?.('remote.settings') || ctx?.['remote.settings'] || remote?.settings
+      } catch {
+        settingsRemote = null
+      }
+      return {
+        async modelCatalog() {
+          if (typeof sessionRemote?.modelCatalog === 'function') {
+            return await sessionRemote.modelCatalog()
+          }
+          if (typeof legacyApi?.llm?.models === 'function') {
+            return await legacyApi.llm.models({})
+          }
+          return { ok: true, value: { groups: [] } }
+        },
+        async describeSettings() {
+          if (typeof settingsRemote?.describe === 'function') {
+            return await settingsRemote.describe()
+          }
+          if (typeof legacyApi?.settings?.describe === 'function') {
+            return await legacyApi.settings.describe({})
+          }
+          return { ok: true, value: { writable: false, namespaces: [] } }
+        },
+        async mutateSettings(ns, ops, expectedRevision) {
+          if (typeof settingsRemote?.mutate === 'function') {
+            return await settingsRemote.mutate(ns, ops, expectedRevision)
+          }
+          const legacy = legacyApi || api
+          if (typeof legacy?.settings?.mutate === 'function') {
+            return await legacy.settings.mutate({ ns, ops, expectedRevision })
+          }
+          if (typeof api?.settings?.mutate === 'function') {
+            return await api.settings.mutate({ ns, ops, expectedRevision })
+          }
+          throw new Error('当前环境不支持设置写入 (未检测到 remote.settings 或 api.settings 服务)')
+        },
+      }
     }
 
     function rememberNativeImageModels(models) {
@@ -154,21 +219,39 @@ window.__ModuleLoader__.load({
     }
 
     async function refreshNativeImageKeys() {
-      if (!connectionRpc) {
-        rememberNativeImageModels([])
-        return []
+      if (connectionRpc) {
+        try {
+          const result = await connectionRpc.call(READ_ONLY_RPC_CHANNEL, NATIVE_IMAGE_RPC_ENDPOINT, {})
+          if (result?.ok && Array.isArray(result.value?.models)) {
+            const models = result.value.models
+            rememberNativeImageModels(models)
+            return models
+          }
+        } catch (error) {
+          console.warn('[dsh-vision-link] connectionRpc call failed, trying direct fetch:', error)
+        }
       }
-      try {
-        const result = await connectionRpc.call(READ_ONLY_RPC_CHANNEL, NATIVE_IMAGE_RPC_ENDPOINT, {})
-        if (!result?.ok) throw new Error(result?.error?.message || '原生看图模型接口不可用')
-        const models = result.value?.models || []
-        rememberNativeImageModels(models)
-        return models
-      } catch (error) {
-        console.warn('[dsh-vision-link] native image catalog unavailable:', error)
-        rememberNativeImageModels([])
-        return []
+      if (typeof window !== 'undefined' && typeof window.fetch === 'function' && window.location?.origin) {
+        try {
+          const response = await window.fetch(`${READ_ONLY_RPC_CHANNEL}/${NATIVE_IMAGE_RPC_ENDPOINT}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ type: 'client-request', rpcId: 'probe', method: NATIVE_IMAGE_RPC_ENDPOINT, payload: {} }),
+          })
+          if (response.ok) {
+            const data = await response.json()
+            if (data?.result?.ok && Array.isArray(data.result.value?.models)) {
+              const models = data.result.value.models
+              rememberNativeImageModels(models)
+              return models
+            }
+          }
+        } catch (fetchError) {
+          console.warn('[dsh-vision-link] native image fetch unavailable:', fetchError)
+        }
       }
+      rememberNativeImageModels([])
+      return []
     }
 
     function isNativeImageModel(provider, model) {
@@ -176,40 +259,127 @@ window.__ModuleLoader__.load({
     }
 
     async function readOnlyMappingSnapshot() {
-      if (!connectionRpc) return null
-      try {
-        const result = await connectionRpc.call(READ_ONLY_RPC_CHANNEL, READ_ONLY_RPC_ENDPOINT, {})
-        if (!result?.ok) throw new Error(result?.error?.message || '只读映射接口不可用')
-        return result.value
-      } catch (error) {
-        console.warn('[dsh-vision-link] read-only mapping snapshot unavailable:', error)
-        return null
+      if (connectionRpc) {
+        try {
+          const result = await connectionRpc.call(READ_ONLY_RPC_CHANNEL, READ_ONLY_RPC_ENDPOINT, {})
+          if (result?.ok) return result.value
+        } catch (error) {
+          console.warn('[dsh-vision-link] connectionRpc snapshot call failed, trying direct fetch:', error)
+        }
       }
+      if (typeof window !== 'undefined' && typeof window.fetch === 'function' && window.location?.origin) {
+        try {
+          const response = await window.fetch(`${READ_ONLY_RPC_CHANNEL}/${READ_ONLY_RPC_ENDPOINT}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ type: 'client-request', rpcId: 'probe', method: READ_ONLY_RPC_ENDPOINT, payload: {} }),
+          })
+          if (response.ok) {
+            const data = await response.json()
+            if (data?.result?.ok) return data.result.value
+          }
+        } catch {
+          // Fallback fetch failed
+        }
+      }
+      return null
+    }
+
+    function extractVisionModelsFromSettings(settingsRoot) {
+      const models = []
+      const seen = new Set()
+      for (const ns of settingsRoot?.namespaces || []) {
+        const providers = ns?.value?.providers
+        if (!providers || typeof providers !== 'object') continue
+        for (const [providerId, provider] of Object.entries(providers)) {
+          if (!provider || typeof provider !== 'object') continue
+          for (const m of provider.models || []) {
+            if (!m || typeof m !== 'object' || !m.id) continue
+            const hasImage = (Array.isArray(m.input) && m.input.includes('image'))
+              || (Array.isArray(m.inputModalities) && m.inputModalities.includes('image'))
+              || (Array.isArray(m.modalities) && m.modalities.includes('image'))
+            if (hasImage) {
+              const key = modelKey(providerId, m.id)
+              if (!seen.has(key)) {
+                seen.add(key)
+                models.push({
+                  provider: providerId,
+                  providerName: provider.displayName || provider.name || providerId,
+                  model: m.id,
+                  name: m.name || m.id,
+                  inputModalities: ['text', 'image'],
+                })
+              }
+            }
+          }
+        }
+      }
+      return models
     }
 
     async function loadState(preferredProvider) {
       const [catalogResponse, settingsResponse, readOnlySnapshot, nativeImageModels] = await Promise.all([
-        api.llm.models({}),
-        api.settings.describe({}),
+        api.modelCatalog(),
+        api.describeSettings(),
         readOnlyMappingSnapshot(),
         refreshNativeImageKeys(),
       ])
-      const catalog = unwrap(catalogResponse, '模型目录')
-      const settingsRoot = unwrap(settingsResponse, '视觉映射设置')
-      const settings = settingsRoot.namespaces.find((entry) => entry.ns === SETTINGS_NS)
+      const catalog = unwrap(catalogResponse, '模型目录') || {}
+      let settingsRoot = null
+      let settings = null
+      try {
+        settingsRoot = unwrap(settingsResponse, '视觉映射设置')
+        settings = (settingsRoot?.namespaces || []).find((entry) => entry.ns === SETTINGS_NS)
+      } catch (error) {
+        console.warn('[dsh-vision-link] settings describe unavailable:', error)
+      }
 
-      // Web selector catalogs omit modalities. Native image routes come from
-      // Host listModels via the loopback projection, not from Settings YAML.
-      const imageModelKeys = new Set((nativeImageModels || []).map((entry) => modelKey(entry.provider, entry.model)))
+      // Multi-tier vision discovery:
+      // 1. Host RPC projection (nativeImageModels from /vision-link-rpc)
+      // 2. Settings namespaces (e.g. llm-pi-ai providers where models declare input: [text, image])
+      const settingsVisionModels = extractVisionModelsFromSettings(settingsRoot)
+      const imageModelKeys = new Set([
+        ...(nativeImageModels || []).map((entry) => modelKey(entry.provider, entry.model)),
+        ...settingsVisionModels.map((entry) => modelKey(entry.provider, entry.model)),
+      ])
 
       const groups = (catalog.groups || []).filter((group) => !isWrapperProvider(group.id))
-      const allModels = groups.flatMap((group) => (group.models || []).map((model) => ({
-        provider: group.id,
-        providerName: group.name || group.id,
-        model: model.id,
-        name: model.name || model.id,
-        inputModalities: imageModelKeys.has(modelKey(group.id, model.id)) ? ['text', 'image'] : ['text'],
-      })))
+      const catalogModels = groups.flatMap((group) => (group.models || []).map((model) => {
+        const key = modelKey(group.id, model.id)
+        const isVision = imageModelKeys.has(key)
+          || (Array.isArray(model.inputModalities) && model.inputModalities.includes('image'))
+          || (Array.isArray(model.input) && model.input.includes('image'))
+        return {
+          provider: group.id,
+          providerName: group.name || group.id,
+          model: model.id,
+          name: model.name || model.id,
+          inputModalities: isVision ? ['text', 'image'] : ['text'],
+        }
+      }))
+
+      // Include extra vision models found in settings/RPC that were not in catalog.groups
+      const knownKeys = new Set(catalogModels.map((entry) => modelKey(entry.provider, entry.model)))
+      const extraVisionModels = [
+        ...settingsVisionModels,
+        ...(nativeImageModels || []).map((entry) => ({
+          provider: entry.provider,
+          providerName: entry.providerName || entry.provider,
+          model: entry.model,
+          name: entry.name || entry.model,
+          inputModalities: ['text', 'image'],
+        })),
+      ]
+      const extraDeduped = []
+      for (const entry of extraVisionModels) {
+        const key = modelKey(entry.provider, entry.model)
+        if (!knownKeys.has(key)) {
+          knownKeys.add(key)
+          extraDeduped.push(entry)
+        }
+      }
+
+      const allModels = [...catalogModels, ...extraDeduped]
       const visionModels = allModels
         .filter((entry) => entry.inputModalities.includes('image'))
         .sort((left, right) => {
@@ -233,7 +403,7 @@ window.__ModuleLoader__.load({
       return {
         managementAvailable: Boolean(settings),
         readOnlyAvailable: Boolean(!settings && readOnlySnapshot?.mode === 'read-only'),
-        writable: Boolean(settings && settingsRoot.writable),
+        writable: Boolean(settings && settingsRoot?.writable),
         revision: settings?.revision,
         mappings: settings?.value?.mappings || readOnlyMappings,
         visionModels,
@@ -250,21 +420,15 @@ window.__ModuleLoader__.load({
         focusPreset,
         ...(focusPreset === 'custom' ? { customFocus: customFocus.trim() } : {}),
       }
-      const response = await api.settings.mutate({
-        ns: SETTINGS_NS,
-        ops: [{ op: 'set', path: ['mappings', key], value }],
-        expectedRevision,
-      })
+      const ops = [{ op: 'set', path: ['mappings', key], value }]
+      const response = await api.mutateSettings(SETTINGS_NS, ops, expectedRevision)
       unwrap(response, '保存映射')
       return value
     }
 
     async function removeMapping(key, expectedRevision) {
-      const response = await api.settings.mutate({
-        ns: SETTINGS_NS,
-        ops: [{ op: 'unset', path: ['mappings', key] }],
-        expectedRevision,
-      })
+      const ops = [{ op: 'unset', path: ['mappings', key] }]
+      const response = await api.mutateSettings(SETTINGS_NS, ops, expectedRevision)
       unwrap(response, '删除映射')
     }
 
@@ -508,6 +672,19 @@ window.__ModuleLoader__.load({
       React.useEffect(() => { void load() }, [load])
       const data = state.data
 
+      React.useEffect(() => {
+        if (data?.visionModels?.length > 0) {
+          const exists = data.visionModels.some((entry) => modelKey(entry.provider, entry.model) === visionKey)
+          if (!exists) {
+            const provider = textKey ? textKey.split('/')[0] : ''
+            const sorted = [...data.visionModels].sort((left, right) => {
+              return Number(right.provider === provider) - Number(left.provider === provider)
+            })
+            if (sorted[0]) setVisionKey(modelKey(sorted[0].provider, sorted[0].model))
+          }
+        }
+      }, [data, textKey, visionKey])
+
       const configExample = () => {
         const text = data?.textModels.find((entry) => modelKey(entry.provider, entry.model) === textKey)
           || data?.textModels[0]
@@ -693,10 +870,9 @@ window.__ModuleLoader__.load({
 
     function apply(ctx) {
       installStyles()
-      const connection = ctx.get('connection')
-      api = connection?.api
+      const connection = ctx?.get?.('connection') || ctx?.connection
       connectionRpc = connection?.rpc || null
-      if (!api) throw new Error('dsh-vision-link: connection service unavailable')
+      api = createApiAdapter(ctx)
       void refreshNativeImageKeys()
 
       ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
@@ -738,7 +914,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.name = 'dsh-vision-link'
-    exports.inject = ['slots', 'connection']
+    exports.inject = ['slots', 'connection', 'remote', 'remote.session', 'remote.settings']
     exports.apply = apply
     return module.exports
   },

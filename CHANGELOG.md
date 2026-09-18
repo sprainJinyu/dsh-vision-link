@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here. The project follows Semantic Versioning.
 
+## [1.2.4] - 2026-09-18
+
+### Fixed
+
+- **Vision Candidates Discovery in Web Settings**: Resolved issue where "图片理解模型" candidate dropdown was completely empty when mapping text models.
+- **Direct WebServer RPC Route**: Registered `/vision-link-rpc` directly on `ctx.webServer`, resolving `TypeError: Cannot read properties of undefined (reading 'register')` caused by DSH `@deepseek-ai/dsh-client-connection` omitting `webServer` dependency.
+- **Settings Multi-Modality Parsing**: Added client-side extraction of vision models from `settings.describe()` (`llm-pi-ai` and provider namespaces) so models with `input: [text, image]` (such as `doubao-seed-2.1-turbo`, `qwen3.8-max`, `gemini-3.5-flash`) are reliably detected and selectable.
+- **Auto-Selection**: In settings mapping panel, automatically pre-select the highest priority vision model (same-group prioritized) when no mapping is selected.
+
+## [1.2.3] - 2026-09-17
+
+### Fixed
+
+- **Latest DSH Compatibility**: Resolved fatal initialization error (`connection service unavailable`) caused by DSH moving remote RPC and settings APIs away from `connection.api`.
+- Modernized client remote integration to use standard `ctx.remote.session.modelCatalog()`, `ctx.remote.settings.describe()`, and `ctx.remote.settings.mutate(ns, ops, revision)` with seamless legacy fallback.
+- Updated `unwrap()` to support modern `RemoteResult` `{ ok, value, error }` envelopes alongside legacy `{ result: { ok, value } }`.
+- Replaced obsolete `@deepseek-ai/dsh-client-runtime` entry in `package.json` `dsh.client.inject` with `@deepseek-ai/dsh-api-remotes`.
+- Added `'remote'` to `client.js` `exports.inject` for declarative Cordis lifecycle binding.
+
 ## [1.2.2] - 2026-08-24
 
 ### Changed

@@ -1,6 +1,6 @@
 {
   "name": "dsh-vision-link",
-  "version": "1.2.2",
+  "version": "1.2.4",
   "type": "module",
   "description": "Lightweight, route-preserving vision link for DSH: a configured vision model sees while the selected text model stays in control.",
   "main": "index.mjs",
@@ -39,7 +39,7 @@
     "client": {
       "inject": [
         "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-settings-plugins"
       ],
