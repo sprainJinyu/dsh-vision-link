@@ -209,6 +209,9 @@ const TargetSchema = z.object({
 
 export const SettingsSchema = z.object({
   mappings: z.dict(TargetSchema).default({}),
+  defaultTarget: z.union([TargetSchema, z.const(undefined)]),
+  autoFallback: z.boolean().default(false),
+  gracefulDegrade: z.boolean().default(false),
 })
 
 const pendingReads = new Map()
@@ -271,8 +274,41 @@ async function validateVisionTarget(nativeResolve, target, signal) {
   }
 }
 
-export async function resolveVisionTarget(nativeResolve, config, settings, provider, model, signal) {
-  return validateVisionTarget(nativeResolve, configuredTarget(config, settings, provider, model), signal)
+export async function resolveVisionTarget(nativeResolve, config, settings, provider, model, signal, llm) {
+  const configured = configuredTarget(config, settings, provider, model)
+  if (configured) {
+    const validated = await validateVisionTarget(nativeResolve, configured, signal)
+    if (validated) return validated
+  }
+
+  // Fallback 1: defaultTarget in settings or config
+  const defaultTarget = settings?.defaultTarget || config?.defaultTarget
+  if (defaultTarget?.provider && defaultTarget?.model) {
+    const validated = await validateVisionTarget(nativeResolve, defaultTarget, signal)
+    if (validated) return validated
+  }
+
+  // Fallback 2: autoFallback to native image model in same provider
+  const autoFallback = settings?.autoFallback ?? config?.autoFallback ?? false
+  if (autoFallback && typeof llm?.listModels === 'function') {
+    try {
+      const same = await llm.listModels(provider)
+      for (const m of same || []) {
+        if (m?.id && m.id !== model && Array.isArray(m.inputModalities) && m.inputModalities.includes('image')) {
+          const candidate = {
+            provider: m.provider || provider,
+            model: m.id,
+            displayName: m.name || `${m.provider || provider}/${m.id}`,
+            focusPreset: 'auto',
+          }
+          const validated = await validateVisionTarget(nativeResolve, candidate, signal)
+          if (validated) return validated
+        }
+      }
+    } catch {}
+  }
+
+  return null
 }
 
 /** Deterministic JSON regardless of property order. */
@@ -468,13 +504,39 @@ async function* syntheticTextStream(text) {
   yield { type: 'finish', reason: { kind: 'stop' } }
 }
 
+export function stripImagesFromMessages(messages, noticeText) {
+  return (messages || []).map((message) => {
+    if (!Array.isArray(message?.content)) return message
+    const hasImg = message.content.some((block) => block?.type === 'image')
+    if (!hasImg) return message
+    const content = []
+    let noticed = false
+    for (const block of message.content) {
+      if (block?.type === 'image') {
+        if (!noticed && noticeText) {
+          content.push({ type: 'text', text: `\n\n${noticeText}\n\n` })
+          noticed = true
+        }
+      } else {
+        content.push(block)
+      }
+    }
+    return { ...message, content }
+  })
+}
+
 function installCapabilityOverlay(ctx, nativeResolve, config, settingsOf) {
   const previous = ctx.llm.resolveModelInfo
   const enhanced = async function resolveVisionLinkedModel(provider, model, signal) {
     const info = await nativeResolve(provider, model, signal)
     if (Array.isArray(info.inputModalities) && info.inputModalities.includes('image')) return info
-    const target = await resolveVisionTarget(nativeResolve, config, settingsOf(), provider, model, signal)
-    if (target === null) return info
+    const target = await resolveVisionTarget(nativeResolve, config, settingsOf(), provider, model, signal, ctx.llm)
+    if (target === null) {
+      if (settingsOf()?.gracefulDegrade || config?.gracefulDegrade) {
+        return { ...info, inputModalities: [...new Set([...(info.inputModalities || ['text']), 'image'])] }
+      }
+      return info
+    }
     return { ...info, inputModalities: [...new Set([...(info.inputModalities || ['text']), 'image'])] }
   }
   ctx.llm.resolveModelInfo = enhanced
@@ -500,8 +562,17 @@ function installStreamBridge(ctx, nativeResolve, config, settingsOf) {
         options.provider,
         options.model,
         options.signal,
+        ctx.llm,
       )
       if (target === null) {
+        if (settingsOf()?.gracefulDegrade) {
+          const messages = stripImagesFromMessages(
+            options.messages,
+            '【附图已略过：当前模型无视觉能力且未配置视觉模型，本消息仅按纯文本处理】',
+          )
+          yield* ctx.llm.stream({ ...options, messages })
+          return
+        }
         yield* syntheticTextStream(
           '> ⚠️ 未找到与当前文本模型匹配的图片理解模型。图片没有发送给当前模型。请在 `settings.yaml` 的 `vision-link.mappings` 中配置映射；若当前 DSH 已开放插件 Web Settings，也可以在“设置 → 插件 → 视觉映射”中配置。',
         )
@@ -519,6 +590,15 @@ function installStreamBridge(ctx, nativeResolve, config, settingsOf) {
         // text-only projection to the real adapter.
         yield* ctx.llm.stream({ ...options, messages })
       } catch (error) {
+        if (settingsOf()?.gracefulDegrade) {
+          const message = error instanceof Error ? error.message : String(error)
+          const messages = stripImagesFromMessages(
+            options.messages,
+            `【附图读取失败（${target.displayName}）：${message}，已略过图片并转为纯文本处理】`,
+          )
+          yield* ctx.llm.stream({ ...options, messages })
+          return
+        }
         const message = error instanceof Error ? error.message : String(error)
         yield* syntheticTextStream(
           `> ⚠️ 图片读取失败（${target.displayName}）：${message}\n\n当前文本模型未被调用，请检查映射或稍后重试。`,
@@ -529,9 +609,15 @@ function installStreamBridge(ctx, nativeResolve, config, settingsOf) {
 }
 
 export function apply(ctx, config = {}) {
-  let settings = { mappings: config.visionTargetByModel || {} }
+  const base = {
+    mappings: config.visionTargetByModel || {},
+    ...(config.defaultTarget ? { defaultTarget: config.defaultTarget } : {}),
+    ...(config.autoFallback !== undefined ? { autoFallback: config.autoFallback } : {}),
+    ...(config.gracefulDegrade !== undefined ? { gracefulDegrade: config.gracefulDegrade } : {}),
+  }
+  let settings = { ...base }
   const scope = ctx.settings.register(SETTINGS_NAMESPACE, SettingsSchema, {
-    base: { mappings: config.visionTargetByModel || {} },
+    base,
     applies: 'live',
     validate(value) {
       for (const [key, target] of Object.entries(value.mappings || {})) {
@@ -543,6 +629,9 @@ export function apply(ctx, config = {}) {
         if (target.focusPreset === 'custom' && !String(target.customFocus || '').trim()) {
           throw new Error(`vision-link: custom focus for "${key}" cannot be empty`)
         }
+      }
+      if (value.defaultTarget) {
+        if (isWrapperProvider(value.defaultTarget.provider)) throw new Error(`vision-link: wrapper provider cannot be a vision target (${value.defaultTarget.provider})`)
       }
     },
   })

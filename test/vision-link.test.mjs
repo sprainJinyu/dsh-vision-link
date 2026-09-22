@@ -814,4 +814,84 @@ describe('DSH Vision Link route-preserving sidecar', () => {
       globalThis.document = origDoc
     }
   })
+
+  it('falls back to defaultTarget when a text model is unmapped', async () => {
+    const bench = createHarness()
+    bench.updateMappings({})
+    apply(bench.ctx, {
+      defaultTarget: {
+        provider: 'provider-a', model: 'vision-chat', displayName: 'Default Vision', focusPreset: 'auto',
+      },
+    })
+
+    const enhanced = await bench.ctx.llm.resolveModelInfo('provider-a', 'text-chat')
+    assert.deepEqual(enhanced.inputModalities, ['text', 'image'])
+
+    const chunks = await drain(bench.ctx.llm.stream({
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [userMessage('m1', [
+        { type: 'text', text: '请分析图片' },
+        { type: 'image', attachment: { attachmentId: 'img-default-target' } },
+      ])],
+    }))
+
+    assert.equal(bench.rawCalls.length, 2)
+    assert.deepEqual(
+      bench.rawCalls.map((call) => [call.provider, call.model]),
+      [['provider-a', 'vision-chat'], ['provider-a', 'text-chat']],
+    )
+    bench.dispose()
+  })
+
+  it('auto-falls back to same-provider native image model when autoFallback is enabled', async () => {
+    const bench = createHarness()
+    apply(bench.ctx, { autoFallback: true })
+
+    // provider-a has text-chat and vision-chat
+    const enhanced = await bench.ctx.llm.resolveModelInfo('provider-a', 'text-chat')
+    assert.deepEqual(enhanced.inputModalities, ['text', 'image'])
+
+    const chunks = await drain(bench.ctx.llm.stream({
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [userMessage('m2', [
+        { type: 'text', text: '自动查找同组视觉模型' },
+        { type: 'image', attachment: { attachmentId: 'img-auto-fallback' } },
+      ])],
+    }))
+
+    assert.equal(bench.rawCalls.length, 2)
+    assert.deepEqual(
+      bench.rawCalls.map((call) => [call.provider, call.model]),
+      [['provider-a', 'vision-chat'], ['provider-a', 'text-chat']],
+    )
+    bench.dispose()
+  })
+
+  it('gracefully strips images and invokes text adapter when gracefulDegrade is enabled ("没有就没有了")', async () => {
+    const bench = createHarness()
+    apply(bench.ctx, { gracefulDegrade: true })
+
+    const enhanced = await bench.ctx.llm.resolveModelInfo('provider-a', 'text-chat')
+    assert.deepEqual(enhanced.inputModalities, ['text', 'image'])
+
+    const chunks = await drain(bench.ctx.llm.stream({
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [userMessage('m3', [
+        { type: 'text', text: '无视觉模型时的提问' },
+        { type: 'image', attachment: { attachmentId: 'img-no-vision' } },
+      ])],
+    }))
+
+    // Text model IS called directly with image stripped!
+    assert.equal(bench.rawCalls.length, 1)
+    assert.equal(bench.rawCalls[0].provider, 'provider-a')
+    assert.equal(bench.rawCalls[0].model, 'text-chat')
+    const sentContent = bench.rawCalls[0].messages[0].content
+    assert.equal(sentContent.some((b) => b.type === 'image'), false)
+    assert.match(sentContent[1].text, /附图已略过/s)
+    bench.dispose()
+  })
 })
