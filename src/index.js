@@ -616,27 +616,29 @@ export function apply(ctx, config = {}) {
     ...(config.gracefulDegrade !== undefined ? { gracefulDegrade: config.gracefulDegrade } : {}),
   }
   let settings = { ...base }
-  const scope = ctx.settings.register(SETTINGS_NAMESPACE, SettingsSchema, {
-    base,
-    applies: 'live',
-    validate(value) {
-      for (const [key, target] of Object.entries(value.mappings || {})) {
-        if (!key.includes('/')) throw new Error(`vision-link: invalid text model mapping key "${key}"`)
-        if (isWrapperProvider(target.provider)) throw new Error(`vision-link: wrapper provider cannot be a vision target (${target.provider})`)
-        if (!FOCUS_PRESETS.has(target.focusPreset || 'auto')) {
-          throw new Error(`vision-link: unsupported focus preset "${target.focusPreset}"`)
+  if (typeof ctx.settings?.register === 'function') {
+    const scope = ctx.settings.register(SETTINGS_NAMESPACE, SettingsSchema, {
+      base,
+      applies: 'live',
+      validate(value) {
+        for (const [key, target] of Object.entries(value.mappings || {})) {
+          if (!key.includes('/')) throw new Error(`vision-link: invalid text model mapping key "${key}"`)
+          if (isWrapperProvider(target.provider)) throw new Error(`vision-link: wrapper provider cannot be a vision target (${target.provider})`)
+          if (!FOCUS_PRESETS.has(target.focusPreset || 'auto')) {
+            throw new Error(`vision-link: unsupported focus preset "${target.focusPreset}"`)
+          }
+          if (target.focusPreset === 'custom' && !String(target.customFocus || '').trim()) {
+            throw new Error(`vision-link: custom focus for "${key}" cannot be empty`)
+          }
         }
-        if (target.focusPreset === 'custom' && !String(target.customFocus || '').trim()) {
-          throw new Error(`vision-link: custom focus for "${key}" cannot be empty`)
+        if (value.defaultTarget) {
+          if (isWrapperProvider(value.defaultTarget.provider)) throw new Error(`vision-link: wrapper provider cannot be a vision target (${value.defaultTarget.provider})`)
         }
-      }
-      if (value.defaultTarget) {
-        if (isWrapperProvider(value.defaultTarget.provider)) throw new Error(`vision-link: wrapper provider cannot be a vision target (${value.defaultTarget.provider})`)
-      }
-    },
-  })
-  settings = scope.get()
-  scope.watch((next) => { settings = next })
+      },
+    })
+    settings = scope.get()
+    scope.watch((next) => { settings = next })
+  }
 
   // Direct webServer route registration: bypasses DSH client-connection's missing
   // webServer inject defect and guarantees /vision-link-rpc is served on the web host.
@@ -652,7 +654,7 @@ export function apply(ctx, config = {}) {
 
   // Connection RPC registration: retained for backward compatibility with older
   // DSH harnesses or test environments where connection carries rpc.handle.
-  ctx.inject?.(['connection'], (rpcCtx) => {
+  ctx.inject?.(['connection', 'webServer'], (rpcCtx) => {
     try {
       if (typeof rpcCtx.connection?.rpc?.handle === 'function') {
         installReadOnlyMappingRpc(rpcCtx, () => settings, ctx.llm)
