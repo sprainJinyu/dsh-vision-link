@@ -4,6 +4,7 @@
       name: dsh-vision-link
       config:
         visionTimeoutMs: 60000
-        # No provider-specific mapping is bundled. Users configure exact
-        # mappings in settings.yaml; optional route fallbacks may be supplied
-        # in a profile overlay.
+        # No provider-specific mapping is bundled.
+        # On DSH 0.2.1-alpha.2 the settings page writes volatile Config
+        # (mappings, autoFallback) into the profile patch. autoFallback
+        # defaults on and borrows an image model from the same provider group.

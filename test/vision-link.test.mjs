@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { apply, buildEvidenceCacheKey, createReadOnlyMappingSnapshot, listNativeImageModels, modelKey, SettingsSchema, attachmentIdentity } from '../src/index.js'
+import plugin, { apply, buildEvidenceCacheKey, createReadOnlyMappingSnapshot, listNativeImageModels, materializeSettings, modelKey, readLive, SettingsSchema, attachmentIdentity } from '../src/index.js'
 import { intakeReplayMode } from '../src/intake-support.js'
 
 function userMessage(id, content) {
@@ -317,7 +317,7 @@ describe('DSH Vision Link route-preserving sidecar', () => {
       messages: [userMessage('m3', [{ type: 'image', attachment: { attachmentId: 'unmapped' } }])],
     }))
     assert.equal(bench.rawCalls.length, 0)
-    assert.match(chunks.map((chunk) => chunk.text || '').join(''), /settings\.yaml.*vision-link\.mappings/)
+    assert.match(chunks.map((chunk) => chunk.text || '').join(''), /视觉映射/)
   })
 
   it('reuses evidence for the same image when the question is unchanged', async () => {
@@ -454,6 +454,7 @@ describe('DSH Vision Link route-preserving sidecar', () => {
   it('intake replay mode prefers native hooks, then paste fallback, then config assistant', () => {
     assert.equal(intakeReplayMode({ canInspectModel: true, hasAddImages: true, hasTextarea: true }), 'native-add-images')
     assert.equal(intakeReplayMode({ canInspectModel: true, hasAddImages: false, hasTextarea: true }), 'paste-fallback')
+    assert.equal(intakeReplayMode({ canInspectModel: true, hasAddImages: false, hasTextarea: false, hasContentEditable: true }), 'native-composer')
     assert.equal(intakeReplayMode({ canInspectModel: true, hasAddImages: false, hasTextarea: false }), 'config-assistant')
     assert.equal(intakeReplayMode({ canInspectModel: false, hasAddImages: true, hasTextarea: true }), 'config-assistant')
   })
@@ -464,12 +465,15 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     assert.match(normalized, /if \(!canInspectModel\) return 'config-assistant'/)
     assert.match(normalized, /if \(hasAddImages\) return 'native-add-images'/)
     assert.match(normalized, /if \(hasTextarea\) return 'paste-fallback'/)
+    assert.match(normalized, /if \(hasContentEditable\) return 'native-composer'/)
     const configIndex = source.indexOf("return 'config-assistant'")
     const nativeIndex = source.indexOf("return 'native-add-images'")
     const pasteIndex = source.indexOf("return 'paste-fallback'")
-    assert.ok(configIndex >= 0 && nativeIndex >= 0 && pasteIndex >= 0)
+    const composerIndex = source.indexOf("return 'native-composer'")
+    assert.ok(configIndex >= 0 && nativeIndex >= 0 && pasteIndex >= 0 && composerIndex >= 0)
     assert.ok(configIndex < nativeIndex)
     assert.ok(nativeIndex < pasteIndex)
+    assert.ok(pasteIndex < composerIndex)
   })
 
   it('browser bundle has mapping management and no model-selection mutation', () => {
@@ -489,7 +493,8 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     assert.match(source, /managementAvailable/)
     assert.match(source, /replayNativeIntake\(files\)/)
     assert.match(source, /nativeIntakeSupport/)
-    assert.match(source, /配置助手模式/)
+    assert.match(source, /native-composer/)
+    assert.match(source, /announceComposerIntake/)
     assert.match(source, /paste-fallback/)
     assert.doesNotMatch(source, /\.select\s*\(/)
     assert.doesNotMatch(source, /selectModel/)
@@ -842,6 +847,50 @@ describe('DSH Vision Link route-preserving sidecar', () => {
       [['provider-a', 'vision-chat'], ['provider-a', 'text-chat']],
     )
     bench.dispose()
+  })
+
+  it('borrows a same-group image model from live Config when settings.register is absent', async () => {
+    const bench = createHarness()
+    delete bench.ctx.settings.register
+    const volatile = (value) => ({ get: () => value })
+    apply(bench.ctx, {
+      mappings: volatile({}),
+      autoFallback: volatile(true),
+      gracefulDegrade: volatile(false),
+    })
+
+    const enhanced = await bench.ctx.llm.resolveModelInfo('provider-a', 'text-chat')
+    assert.deepEqual(enhanced.inputModalities, ['text', 'image'])
+
+    await drain(bench.ctx.llm.stream({
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [userMessage('m-live', [
+        { type: 'text', text: '同分组借用' },
+        { type: 'image', attachment: { attachmentId: 'img-live-config' } },
+      ])],
+    }))
+
+    assert.deepEqual(
+      bench.rawCalls.map((call) => [call.provider, call.model]),
+      [['provider-a', 'vision-chat'], ['provider-a', 'text-chat']],
+    )
+    bench.dispose()
+  })
+
+  it('accepts the DSH 0.2.1-alpha.2 Config schema and keeps volatile defaults', () => {
+    assert.equal(plugin.Config, plugin.Config)
+    const parsed = plugin.Config({})
+    assert.equal(readLive(parsed.autoFallback), true)
+    assert.equal(readLive(parsed.gracefulDegrade), false)
+    assert.deepEqual(readLive(parsed.mappings), {})
+    assert.deepEqual(materializeSettings(parsed), {
+      mappings: {},
+      defaultTarget: undefined,
+      autoFallback: true,
+      gracefulDegrade: false,
+    })
+    assert.deepEqual(plugin.Config({ visionTimeoutMs: 60000 }).visionTimeoutMs, 60000)
   })
 
   it('auto-falls back to same-provider native image model when autoFallback is enabled', async () => {

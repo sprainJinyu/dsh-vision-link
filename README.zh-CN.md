@@ -6,6 +6,8 @@
 
 **为 DeepSeek Harness (DSH) 设计的轻量、零侵入、路由保持式视觉旁路插件**
 
+当前适配 DSH **0.2.1-alpha.2**。历史适配见 [`docs/COMPATIBILITY.md`](./docs/COMPATIBILITY.md)。
+
 [![CI](https://github.com/sprainJinyu/dsh-vision-link/actions/workflows/ci.yml/badge.svg)](https://github.com/sprainJinyu/dsh-vision-link/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/dsh-vision-link?color=cb3837&logo=npm)](https://www.npmjs.com/package/dsh-vision-link)
 [![DSH Compatibility](https://img.shields.io/badge/DSH-Compatible-2563eb?logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

@@ -9,10 +9,12 @@ window.__ModuleLoader__.load({
     const module = { exports: {} }
     const exports = module.exports
 
-    function intakeReplayMode({ canInspectModel, hasAddImages, hasTextarea }) {
+    function intakeReplayMode({ canInspectModel, hasAddImages, hasTextarea, hasContentEditable }) {
       if (!canInspectModel) return 'config-assistant'
       if (hasAddImages) return 'native-add-images'
       if (hasTextarea) return 'paste-fallback'
+      // DSH 0.2.1-alpha.2 composer is contentEditable and accepts the paste itself.
+      if (hasContentEditable) return 'native-composer'
       return 'config-assistant'
     }
 
@@ -34,6 +36,7 @@ window.__ModuleLoader__.load({
 
     let api = null
     let connectionRpc = null
+    let lastVisionTextKey = ''
     let intakeBusy = false
     let replayingNativeImageIntake = false
     let nativeImageKeys = new Set()
@@ -105,10 +108,12 @@ window.__ModuleLoader__.load({
       const current = modelState?.current
       const input = findInputBarContext()
       const textarea = document.querySelector('textarea')
+      const contentEditable = document.querySelector('[contenteditable="true"]')
       const replayMode = intakeReplayMode({
         canInspectModel: Boolean(current),
         hasAddImages: typeof input?.addImages === 'function',
         hasTextarea: Boolean(textarea),
+        hasContentEditable: Boolean(contentEditable),
       })
       return {
         modelState,
@@ -406,6 +411,7 @@ window.__ModuleLoader__.load({
         writable: Boolean(settings && settingsRoot?.writable),
         revision: settings?.revision,
         mappings: settings?.value?.mappings || readOnlyMappings,
+        autoFallback: settings ? settings.value?.autoFallback !== false : true,
         visionModels,
         textModels,
       }
@@ -551,6 +557,23 @@ window.__ModuleLoader__.load({
       }
     }
 
+    async function announceComposerIntake(current) {
+      try {
+        const state = await loadState(current.provider)
+        const mapping = state.mappings[modelKey(current.provider, current.model)]
+        if (mapping) {
+          showBanner(`由 ${mapping.displayName || `${mapping.provider}/${mapping.model}`} 读取图片；当前模型保持为 ${current.model}。`)
+          return
+        }
+        const same = state.visionModels.find((entry) => entry.provider === current.provider)
+        if (state.autoFallback !== false && same) {
+          showBanner(`由同分组的 ${same.providerName} · ${same.name} 读取图片；当前模型保持为 ${current.model}。`)
+        }
+      } catch {
+        // The composer already accepted the image. A toast failure must not look like a rejected paste.
+      }
+    }
+
     async function handleImageFiles(files, event) {
       if (replayingNativeImageIntake || intakeBusy || files.length === 0) return
       const support = nativeIntakeSupport()
@@ -560,8 +583,14 @@ window.__ModuleLoader__.load({
         return
       }
       if (!nativeImageReady || isNativeImageModel(current.provider, current.model)) return
+      // The contentEditable composer already keeps the image. Cancelling the
+      // paste here would drop it, and the old textarea replay path does not exist.
+      if (support.replayMode === 'native-composer') {
+        void announceComposerIntake(current)
+        return
+      }
       if (!support.canReplayImages) {
-        showBanner(`当前 DSH 页面未暴露图片回放接口；vision-link 只能保留配置助手模式。请在 settings.yaml 配置映射后手动发送，当前模型保持为 ${current.model}。`, true)
+        showBanner(`当前页面无法把图片放回输入框。请直接粘贴后发送，当前模型保持为 ${current.model}。`, true)
         return
       }
 
@@ -673,16 +702,15 @@ window.__ModuleLoader__.load({
       const data = state.data
 
       React.useEffect(() => {
-        if (data?.visionModels?.length > 0) {
-          const exists = data.visionModels.some((entry) => modelKey(entry.provider, entry.model) === visionKey)
-          if (!exists) {
-            const provider = textKey ? textKey.split('/')[0] : ''
-            const sorted = [...data.visionModels].sort((left, right) => {
-              return Number(right.provider === provider) - Number(left.provider === provider)
-            })
-            if (sorted[0]) setVisionKey(modelKey(sorted[0].provider, sorted[0].model))
-          }
-        }
+        if (!data?.visionModels?.length || !textKey) return
+        const provider = textKey.split('/')[0]
+        const textChanged = lastVisionTextKey !== textKey
+        lastVisionTextKey = textKey
+        const current = data.visionModels.find((entry) => modelKey(entry.provider, entry.model) === visionKey)
+        if (!textChanged && current) return
+        if (current?.provider === provider) return
+        const same = data.visionModels.find((entry) => entry.provider === provider) || data.visionModels[0]
+        if (same) setVisionKey(modelKey(same.provider, same.model))
       }, [data, textKey, visionKey])
 
       const configExample = () => {

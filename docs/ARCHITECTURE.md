@@ -46,8 +46,11 @@ No mapping is stored in LocalStorage, so browser state cannot diverge from the s
 
 ## Mapping precedence
 
-1. live exact mappings from `settings.yaml`;
-2. `visionTargetByModel` from plugin configuration;
-3. `visionTargetByRoute` fallback from plugin configuration.
+On DSH 0.2.1-alpha.2 the live values are volatile `Config` fields, edited from the settings page and stored in the profile patch.
+
+1. exact `mappings` entry for `provider/model`;
+2. `defaultTarget`, when it still resolves as an image model;
+3. `autoFallback` (default on): the first image-capable model listed for the same provider;
+4. legacy `visionTargetByModel` and `visionTargetByRoute` when no live mapping is present.
 
 Exact mappings are recommended for end users because they are explicit and do not silently affect every model in a provider.
