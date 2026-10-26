@@ -2,7 +2,7 @@
 // Adds image understanding to text-only models without changing the selected route.
 
 import { createHash } from 'node:crypto'
-import z from 'schemastery'
+import z from '@deepseek-ai/schemastery'
 
 export const name = 'dsh-vision-link'
 export const inject = ['attachments', 'llm', 'settings']
@@ -214,6 +214,55 @@ export const SettingsSchema = z.object({
   gracefulDegrade: z.boolean().default(false),
 })
 
+/**
+ * DSH 0.2.1-alpha.2 reads plugin configuration from this schema.
+ * Volatile fields are the settings page; `settings.register` is gone.
+ * `autoFallback` defaults on so an unmapped text model borrows an image
+ * model from the same provider group.
+ */
+export const Config = z.object({
+  mappings: z.dict(TargetSchema).default({}).volatile(),
+  defaultTarget: z.union([TargetSchema, z.const(undefined)]).volatile(),
+  autoFallback: z.boolean().default(true).volatile(),
+  gracefulDegrade: z.boolean().default(false).volatile(),
+  visionTimeoutMs: z.number().default(DEFAULT_TIMEOUT_MS),
+  defaultFocus: z.string().default('auto'),
+  visionTargetByModel: z.dict(TargetSchema).default({}),
+  visionTargetByRoute: z.dict(TargetSchema).default({}),
+})
+
+/** Unwrap a Cordis volatile reference. Plain test config passes through. */
+export function readLive(value) {
+  if (value && typeof value === 'object' && typeof value.get === 'function') {
+    const keys = Object.keys(value)
+    if (keys.length === 1 && keys[0] === 'get') return value.get()
+  }
+  return value
+}
+
+/**
+ * One plain settings snapshot.
+ * Live Config wins when the host actually supplied the field.
+ * The legacy `settings.register` snapshot covers older hosts and unit tests.
+ */
+export function materializeSettings(config = {}, registered = null) {
+  const liveMappings = readLive(config.mappings)
+  const legacyMappings = readLive(config.visionTargetByModel)
+  const liveDefault = readLive(config.defaultTarget)
+  const liveAuto = readLive(config.autoFallback)
+  const liveGraceful = readLive(config.gracefulDegrade)
+  return {
+    mappings: {
+      ...(legacyMappings && typeof legacyMappings === 'object' ? legacyMappings : {}),
+      ...(registered?.mappings || {}),
+      ...(liveMappings && typeof liveMappings === 'object' ? liveMappings : {}),
+    },
+    defaultTarget: liveDefault !== undefined ? liveDefault : registered?.defaultTarget,
+    autoFallback: liveAuto !== undefined ? Boolean(liveAuto) : Boolean(registered?.autoFallback),
+    gracefulDegrade: liveGraceful !== undefined ? Boolean(liveGraceful) : Boolean(registered?.gracefulDegrade),
+  }
+}
+
 const pendingReads = new Map()
 const evidenceCache = new Map()
 
@@ -254,9 +303,11 @@ function focusInstruction(target, userQuestion, fallback) {
 
 function configuredTarget(config, settings, provider, model) {
   const key = modelKey(provider, model)
-  const exact = settings?.mappings?.[key] || config.visionTargetByModel?.[key]
+  const legacy = readLive(config.visionTargetByModel)
+  const exact = settings?.mappings?.[key] || legacy?.[key]
   if (exact?.provider && exact?.model) return exact
-  const route = config.visionTargetByRoute?.[provider]
+  const routes = readLive(config.visionTargetByRoute)
+  const route = routes?.[provider]
   return route?.provider && route?.model ? route : null
 }
 
@@ -282,14 +333,14 @@ export async function resolveVisionTarget(nativeResolve, config, settings, provi
   }
 
   // Fallback 1: defaultTarget in settings or config
-  const defaultTarget = settings?.defaultTarget || config?.defaultTarget
+  const defaultTarget = settings?.defaultTarget || readLive(config?.defaultTarget)
   if (defaultTarget?.provider && defaultTarget?.model) {
     const validated = await validateVisionTarget(nativeResolve, defaultTarget, signal)
     if (validated) return validated
   }
 
-  // Fallback 2: autoFallback to native image model in same provider
-  const autoFallback = settings?.autoFallback ?? config?.autoFallback ?? false
+  // Fallback 2: autoFallback to native image model in the same provider group
+  const autoFallback = settings?.autoFallback ?? readLive(config?.autoFallback) ?? false
   if (autoFallback && typeof llm?.listModels === 'function') {
     try {
       const same = await llm.listModels(provider)
@@ -429,6 +480,7 @@ async function readImageViaDsh(ctx, imageBlock, target, options = {}) {
         }],
         system: VISION_SYSTEM_PROMPT,
         signal: controller.signal,
+        __visionLinkDirect: true,
       })
 
       let extractedText = ''
@@ -532,7 +584,7 @@ function installCapabilityOverlay(ctx, nativeResolve, config, settingsOf) {
     if (Array.isArray(info.inputModalities) && info.inputModalities.includes('image')) return info
     const target = await resolveVisionTarget(nativeResolve, config, settingsOf(), provider, model, signal, ctx.llm)
     if (target === null) {
-      if (settingsOf()?.gracefulDegrade || config?.gracefulDegrade) {
+      if (settingsOf()?.gracefulDegrade || readLive(config?.gracefulDegrade)) {
         return { ...info, inputModalities: [...new Set([...(info.inputModalities || ['text']), 'image'])] }
       }
       return info
@@ -547,7 +599,7 @@ function installCapabilityOverlay(ctx, nativeResolve, config, settingsOf) {
 
 function installStreamBridge(ctx, nativeResolve, config, settingsOf) {
   ctx.on('llm/stream', (options, next) => {
-    if (!hasImages(options.messages)) return next()
+    if (options.__visionLinkDirect || !hasImages(options.messages)) return next()
     return (async function* () {
       const nativeInfo = await nativeResolve(options.provider, options.model, options.signal)
       if (Array.isArray(nativeInfo.inputModalities) && nativeInfo.inputModalities.includes('image')) {
@@ -570,25 +622,25 @@ function installStreamBridge(ctx, nativeResolve, config, settingsOf) {
             options.messages,
             '【附图已略过：当前模型无视觉能力且未配置视觉模型，本消息仅按纯文本处理】',
           )
-          yield* ctx.llm.stream({ ...options, messages })
+          yield* ctx.llm.stream({ ...options, messages, __visionLinkDirect: true })
           return
         }
         yield* syntheticTextStream(
-          '> ⚠️ 未找到与当前文本模型匹配的图片理解模型。图片没有发送给当前模型。请在 `settings.yaml` 的 `vision-link.mappings` 中配置映射；若当前 DSH 已开放插件 Web Settings，也可以在“设置 → 插件 → 视觉映射”中配置。',
+          '> ⚠️ 未找到与当前文本模型同分组的图片理解模型。图片没有发送给当前模型。请在“设置 → 插件 → 视觉映射”中指定映射。',
         )
         return
       }
 
       try {
         const messages = await convertMessages(ctx, options.messages, target, {
-          timeoutMs: config.visionTimeoutMs || DEFAULT_TIMEOUT_MS,
+          timeoutMs: readLive(config.visionTimeoutMs) || DEFAULT_TIMEOUT_MS,
           signal: options.signal,
-          defaultFocus: config.defaultFocus || 'auto',
+          defaultFocus: readLive(config.defaultFocus) || 'auto',
         })
         // A fresh request object intentionally does not carry the process-local
         // agent-loop marker. It keeps the exact original route, but supplies a
         // text-only projection to the real adapter.
-        yield* ctx.llm.stream({ ...options, messages })
+        yield* ctx.llm.stream({ ...options, messages, __visionLinkDirect: true })
       } catch (error) {
         if (settingsOf()?.gracefulDegrade) {
           const message = error instanceof Error ? error.message : String(error)
@@ -609,13 +661,9 @@ function installStreamBridge(ctx, nativeResolve, config, settingsOf) {
 }
 
 export function apply(ctx, config = {}) {
-  const base = {
-    mappings: config.visionTargetByModel || {},
-    ...(config.defaultTarget ? { defaultTarget: config.defaultTarget } : {}),
-    ...(config.autoFallback !== undefined ? { autoFallback: config.autoFallback } : {}),
-    ...(config.gracefulDegrade !== undefined ? { gracefulDegrade: config.gracefulDegrade } : {}),
-  }
-  let settings = { ...base }
+  const base = materializeSettings(config)
+  // Hosts before DSH 0.2.1 still expose settings.register. 0.2.1-alpha.2 does not.
+  let registered = null
   if (typeof ctx.settings?.register === 'function') {
     const scope = ctx.settings.register(SETTINGS_NAMESPACE, SettingsSchema, {
       base,
@@ -636,37 +684,46 @@ export function apply(ctx, config = {}) {
         }
       },
     })
-    settings = scope.get()
-    scope.watch((next) => { settings = next })
+    registered = scope.get()
+    scope.watch((next) => { registered = next })
   }
+  const settingsOf = () => materializeSettings(config, registered)
 
-  // Direct webServer route registration: bypasses DSH client-connection's missing
-  // webServer inject defect and guarantees /vision-link-rpc is served on the web host.
+  // This plugin draws its own settings tab. Ask the host not to emit a second form.
+  ctx.inject?.(['settings'], (settingsCtx) => {
+    if (typeof settingsCtx.settings?.configure !== 'function' || !ctx.fiber) return
+    settingsCtx.effect?.(() => settingsCtx.settings.configure({ auto: false }, ctx.fiber))
+  })
+
+  // Direct webServer route. On DSH 0.2.1-alpha.2, connection.rpc.handle
+  // registers through the connection plugin's own context, which does not
+  // inject webServer, so that call throws. This route is the one the page uses.
   ctx.inject?.(['webServer'], (webCtx) => {
     try {
       if (typeof webCtx.webServer?.register === 'function') {
-        installWebServerRpc(webCtx, () => settings, ctx.llm)
+        installWebServerRpc(webCtx, settingsOf, ctx.llm)
       }
     } catch (error) {
       console.warn('[dsh-vision-link] webServer route registration failed:', error)
     }
   })
 
-  // Connection RPC registration: retained for backward compatibility with older
-  // DSH harnesses or test environments where connection carries rpc.handle.
-  ctx.inject?.(['connection', 'webServer'], (rpcCtx) => {
+  // Older harnesses still expose connection.rpc.handle without touching webServer.
+  ctx.inject?.(['connection'], (rpcCtx) => {
     try {
       if (typeof rpcCtx.connection?.rpc?.handle === 'function') {
-        installReadOnlyMappingRpc(rpcCtx, () => settings, ctx.llm)
+        installReadOnlyMappingRpc(rpcCtx, settingsOf, ctx.llm)
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.includes('without inject')) return
       console.warn('[dsh-vision-link] connection rpc registration failed:', error)
     }
   })
 
   const nativeResolve = ctx.llm.resolveModelInfo.bind(ctx.llm)
-  installCapabilityOverlay(ctx, nativeResolve, config, () => settings)
-  installStreamBridge(ctx, nativeResolve, config, () => settings)
+  installCapabilityOverlay(ctx, nativeResolve, config, settingsOf)
+  installStreamBridge(ctx, nativeResolve, config, settingsOf)
 }
 
-export default { name, inject, apply }
+export default { name, inject, Config, apply }
