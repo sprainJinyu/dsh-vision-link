@@ -558,19 +558,15 @@ window.__ModuleLoader__.load({
     }
 
     async function announceComposerIntake(current) {
+      // Quiet mode: composer natively holds the image; do not pop up repetitive banners when mapping exists.
       try {
         const state = await loadState(current.provider)
         const mapping = state.mappings[modelKey(current.provider, current.model)]
-        if (mapping) {
-          showBanner(`由 ${mapping.displayName || `${mapping.provider}/${mapping.model}`} 读取图片；当前模型保持为 ${current.model}。`)
-          return
-        }
+        if (mapping) return
         const same = state.visionModels.find((entry) => entry.provider === current.provider)
-        if (state.autoFallback !== false && same) {
-          showBanner(`由同分组的 ${same.providerName} · ${same.name} 读取图片；当前模型保持为 ${current.model}。`)
-        }
+        if (state.autoFallback !== false && same) return
       } catch {
-        // The composer already accepted the image. A toast failure must not look like a rejected paste.
+        // The composer already accepted the image.
       }
     }
 
@@ -606,7 +602,7 @@ window.__ModuleLoader__.load({
         if (!state.managementAvailable) {
           const mapping = state.mappings[modelKey(current.provider, current.model)]
           if (state.readOnlyAvailable && mapping) {
-            showBanner(`由 ${mapping.displayName || `${mapping.provider}/${mapping.model}`} 读取图片（settings.yaml 只读映射）；当前模型保持为 ${current.model}。${replayModeNote}`)
+            // Quiet mode: recognized by settings.yaml mapping, proceed silently
           } else if (state.readOnlyAvailable) {
             showBanner(`当前模型没有配置图片映射；图片可以加入，但发送时 DSH 会友好拒绝。请在 settings.yaml 中添加映射。当前模型保持为 ${current.model}。${replayModeNote}`, true)
           } else {
@@ -636,7 +632,7 @@ window.__ModuleLoader__.load({
           )
           candidate = choice.target
         }
-        showBanner(`由 ${mapping.displayName || `${candidate.provider}/${candidate.model}`} 读取图片；当前模型保持为 ${current.model}。${replayModeNote}`)
+        // Quiet mode: mapping established, proceed silently
         await replayNativeIntake(files)
       } catch (error) {
         showBanner(`图片映射失败：${error instanceof Error ? error.message : String(error)}`, true)

@@ -14,6 +14,7 @@ Adapted for DeepSeek Harness **0.2.1-alpha.2** and later. See `docs/COMPATIBILIT
 - An unmapped text model borrows the first image-capable model in the same provider group. `autoFallback` defaults to on for this host.
 - The DSH 0.2.1-alpha.2 composer is contentEditable. Pasting an image no longer shows the missing-replay-hook warning; the page keeps the image and the toast names the same-group reader.
 - Prevent recursive re-entrancy on internal `ctx.llm.stream` calls during image extraction and fallback.
+- Quiet paste mode: eliminated redundant toast banner popups on image paste when visual mapping or fallback is already established.
 
 ## [1.2.4] - 2026-09-18
 
