@@ -79,17 +79,26 @@ window.__ModuleLoader__.load({
       return key ? node[key] : null
     }
 
+    function modelStateFrom(node, hopLimit) {
+      let fiber = getReactFiber(node)
+      for (let hop = 0; fiber && hop < hopLimit; hop += 1) {
+        const state = fiber.memoizedProps?.directory?.getSnapshot?.()
+        if (state?.current?.provider && state?.current?.model) return state
+        fiber = fiber.return
+      }
+      return null
+    }
+
     function findModelContext() {
-      const trigger = document.querySelector(
+      const composer = document.querySelector('[contenteditable="true"]')
+      const scope = composer?.closest('[class*="composer"], [class*="Composer"]') || document
+      const legacy = document.querySelector(
         'button[aria-haspopup="menu"][class*="trigger"], button[class*="ModelSelect"], [class*="ModelSelect_root"] button',
       )
-      let fiber = getReactFiber(trigger)
-      while (fiber) {
-        if (fiber.memoizedProps?.directory) {
-          const state = fiber.memoizedProps.directory.getSnapshot?.()
-          if (state?.current) return state
-        }
-        fiber = fiber.return
+      const nodes = [composer, legacy, ...scope.querySelectorAll('button')]
+      for (const node of nodes) {
+        const state = modelStateFrom(node, 30)
+        if (state) return state
       }
       return null
     }
@@ -641,6 +650,19 @@ window.__ModuleLoader__.load({
       }
     }
 
+    function clipboardHasImage(data) {
+      for (const item of Array.from(data?.items || [])) {
+        if (item.kind === 'file' && typeof item.type === 'string' && item.type.startsWith('image/')) return true
+      }
+      return false
+    }
+
+    function eventInComposer(event) {
+      const node = event?.target
+      const element = node?.nodeType === 1 ? node : node?.parentElement
+      return Boolean(element?.closest?.('[contenteditable="true"]'))
+    }
+
     function extractImageFiles(itemsOrFiles) {
       const files = []
       for (const item of Array.from(itemsOrFiles || [])) {
@@ -906,13 +928,27 @@ window.__ModuleLoader__.load({
         label: '视觉映射',
       }, VisionMappingSettings))
 
+      const leaveComposerPaste = (event, data) => {
+        if (!clipboardHasImage(data) && !extractImageFiles(data?.files).length) return false
+        if (!eventInComposer(event)) return false
+        // Reading getAsFile() here consumes the clipboard item. The composer
+        // then sees no image. Leave the original event untouched.
+        const support = nativeIntakeSupport()
+        const current = support.current
+        if (current && !isWrapperProvider(current.provider) && nativeImageReady && !isNativeImageModel(current.provider, current.model)) {
+          void announceComposerIntake(current)
+        }
+        return true
+      }
       const onPaste = (event) => {
         if (replayingNativeImageIntake) return
+        if (leaveComposerPaste(event, event.clipboardData)) return
         const files = extractImageFiles(event.clipboardData?.items)
         if (files.length > 0) void handleImageFiles(files, event)
       }
       const onDrop = (event) => {
         if (replayingNativeImageIntake) return
+        if (leaveComposerPaste(event, event.dataTransfer)) return
         const files = extractImageFiles(event.dataTransfer?.files)
         if (files.length > 0) void handleImageFiles(files, event)
       }

@@ -470,6 +470,7 @@ async function readImageViaDsh(ctx, imageBlock, target, options = {}) {
       const responseStream = ctx.llm.stream({
         provider: target.provider,
         model: target.model,
+        reasoningEffort: 'off',
         messages: [{
           ...sourceMessage,
           role: 'user',
@@ -484,15 +485,23 @@ async function readImageViaDsh(ctx, imageBlock, target, options = {}) {
       })
 
       let extractedText = ''
+      let reasoningText = ''
       for await (const chunk of responseStream) {
         if (chunk.type === 'text-delta' && typeof chunk.text === 'string') extractedText += chunk.text
-        if (chunk.type === 'finish' && chunk.reason?.kind === 'error') {
-          const message = chunk.reason.failure?.message || JSON.stringify(chunk.reason.failure) || 'LLM finish error'
-          throw new Error(`Vision model failed: ${message}`)
+        if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') reasoningText += chunk.text
+        if (chunk.type === 'finish') {
+          if (chunk.reason?.kind === 'error') {
+            const message = chunk.reason.failure?.message || JSON.stringify(chunk.reason.failure) || 'LLM finish error'
+            throw new Error(`Vision model failed: ${message}`)
+          }
+          if (chunk.reason?.kind === 'aborted') {
+            throw new Error(`Vision model timed out after ${timeoutMs}ms`)
+          }
         }
       }
-      if (!extractedText.trim()) throw new Error(`Vision model (${target.displayName}) returned empty evidence.`)
-      const evidence = extractedText.trim()
+      const rawEvidence = extractedText.trim() || reasoningText.trim()
+      if (!rawEvidence) throw new Error(`Vision model (${target.displayName}) returned empty evidence.`)
+      const evidence = rawEvidence
       cacheSet(cacheKey, evidence)
       return evidence
     } finally {

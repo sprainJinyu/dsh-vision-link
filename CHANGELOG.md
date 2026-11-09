@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here. The project follows Semantic Versioning.
 
+## [1.2.6] - 2026-11-09
+
+### Fixed
+
+- **Composer Paste & Model Context**: Preserved native contentEditable image intake by removing premature `getAsFile()` invocation, and enhanced model context discovery with 30-hop React Fiber traversal.
+- **Silent Reasoning Effort**: Disabled reasoning (`reasoningEffort: 'off'`) during sidecar vision reading to prevent multi-thousand token CoT thinking from delaying visual extraction.
+- **Thinking Evidence Fallback**: Extracted `reasoning-delta` stream content as evidence when text deltas are empty, preventing false `empty evidence` errors on thinking vision models.
+- **Accurate Timeout Diagnostics**: Differentiated abort timeout from empty completion, reporting explicit elapsed timeout message.
+
 ## [1.2.5] - 2026-10-26
 
 Adapted for DeepSeek Harness **0.2.1-alpha.2** and later. See `docs/COMPATIBILITY.md`.

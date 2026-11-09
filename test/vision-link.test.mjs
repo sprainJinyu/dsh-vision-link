@@ -496,6 +496,11 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     assert.match(source, /native-composer/)
     assert.match(source, /announceComposerIntake/)
     assert.match(source, /paste-fallback/)
+    assert.match(source, /function clipboardHasImage/)
+    assert.match(source, /item\.kind === 'file'/)
+    assert.match(source, /function eventInComposer/)
+    const pasteHandler = source.slice(source.indexOf('const onPaste'), source.indexOf('const onDrop'))
+    assert.ok(pasteHandler.indexOf('leaveComposerPaste') < pasteHandler.indexOf('extractImageFiles'))
     assert.doesNotMatch(source, /\.select\s*\(/)
     assert.doesNotMatch(source, /selectModel/)
   })
@@ -941,6 +946,41 @@ describe('DSH Vision Link route-preserving sidecar', () => {
     const sentContent = bench.rawCalls[0].messages[0].content
     assert.equal(sentContent.some((b) => b.type === 'image'), false)
     assert.match(sentContent[1].text, /附图已略过/s)
+    bench.dispose()
+  })
+
+  it('extracts reasoning-delta as visual evidence when vision model only returns reasoning', async () => {
+    const bench = createHarness({
+      'provider-a/text-chat': {
+        provider: 'provider-a',
+        model: 'vision-reasoning',
+        displayName: 'Vision Reasoning',
+      },
+    })
+    apply(bench.ctx)
+    const originalStream = bench.ctx.llm.stream
+    bench.ctx.llm.stream = (options) => {
+      if (options.model === 'vision-reasoning') {
+        return (async function* () {
+          yield { type: 'reasoning-delta', index: 0, text: '思考中：图中可见一个红色的告警弹窗' }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        })()
+      }
+      return originalStream(options)
+    }
+
+    const chunks = await drain(bench.ctx.llm.stream({
+      provider: 'provider-a',
+      model: 'text-chat',
+      messages: [userMessage('m4', [
+        { type: 'text', text: '图里有啥' },
+        { type: 'image', attachment: { attachmentId: 'img-reasoning-only' } },
+      ])],
+    }))
+
+    assert.equal(bench.rawCalls.length, 1)
+    const sentEvidence = bench.rawCalls[0].messages[0].content[1].text
+    assert.match(sentEvidence, /红色的告警弹窗/)
     bench.dispose()
   })
 })
